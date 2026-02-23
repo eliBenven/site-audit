@@ -22,12 +22,12 @@ import type {
 const IMPACT_WEIGHT: Record<FixImpact, number> = { high: 3, medium: 2, low: 1 };
 const EFFORT_WEIGHT: Record<FixEffort, number> = { low: 3, medium: 2, high: 1 };
 
-function score(impact: FixImpact, effort: FixEffort): number {
+export function score(impact: FixImpact, effort: FixEffort): number {
   return IMPACT_WEIGHT[impact] * EFFORT_WEIGHT[effort];
 }
 
 /** Build the ranked fix list from SEO + Lighthouse findings. */
-function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null): RankedFix[] {
+export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null): RankedFix[] {
   const fixMap = new Map<string, RankedFix>();
 
   // Helper to add/merge a fix
@@ -118,7 +118,7 @@ function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null): RankedFi
 
 // ── JSON Report ──────────────────────────────────────────────────────────────
 
-function buildJsonReport(
+export function buildJsonReport(
   crawlResult: CrawlResult,
   seo: SeoResult,
   lh: LighthouseResult | null,
@@ -161,7 +161,7 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function generateHtml(report: AuditReport): string {
+export function generateHtml(report: AuditReport): string {
   const severityBadge = (sev: string) => {
     const colors: Record<string, string> = { error: "#dc3545", warning: "#ffc107", info: "#17a2b8" };
     const bg = colors[sev] ?? "#6c757d";

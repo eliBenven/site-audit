@@ -19,7 +19,7 @@ const DEFAULT_OPTIONS: CrawlOptions = {
 };
 
 /** Normalise a URL: strip hash, trailing slash, sort search params. */
-function normalizeUrl(raw: string, base?: string): string | null {
+export function normalizeUrl(raw: string, base?: string): string | null {
   try {
     const u = new URL(raw, base);
     // Only crawl http(s)
@@ -37,7 +37,7 @@ function normalizeUrl(raw: string, base?: string): string | null {
 }
 
 /** Check whether two URLs share the same origin. */
-function isSameOrigin(a: string, b: string): boolean {
+export function isSameOrigin(a: string, b: string): boolean {
   try {
     return new URL(a).origin === new URL(b).origin;
   } catch {
@@ -49,7 +49,7 @@ function isSameOrigin(a: string, b: string): boolean {
  * Extract all internal anchor links from HTML using a simple regex
  * (used when mode === "html").
  */
-function extractLinksFromHtml(html: string, pageUrl: string): string[] {
+export function extractLinksFromHtml(html: string, pageUrl: string): string[] {
   const links: string[] = [];
   const hrefRe = /<a\s[^>]*href=["']([^"']+)["'][^>]*>/gi;
   let match: RegExpExecArray | null;
