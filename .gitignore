@@ -3,3 +3,5 @@ node_modules
 .env
 .env.*
 dist
+site-audit-output
+*.tgz
