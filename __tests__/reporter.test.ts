@@ -5,6 +5,7 @@ import {
   buildJsonReport,
   generateHtml,
 } from "../src/reporter.js";
+import type { ReportInputs } from "../src/reporter.js";
 import type {
   CrawlResult,
   PageNode,
@@ -258,7 +259,7 @@ describe("buildJsonReport", () => {
   it("produces a valid AuditReport structure", () => {
     const crawl = makeMinimalCrawlResult();
     const seo = makeMinimalSeoResult();
-    const report = buildJsonReport(crawl, seo, null);
+    const report = buildJsonReport({ crawlResult: crawl, seo, lh: null });
 
     expect(report.generatedAt).toBeDefined();
     expect(report.startUrl).toBe("https://example.com");
@@ -273,7 +274,7 @@ describe("buildJsonReport", () => {
   it("includes status code distribution", () => {
     const crawl = makeMinimalCrawlResult();
     const seo = makeMinimalSeoResult();
-    const report = buildJsonReport(crawl, seo, null);
+    const report = buildJsonReport({ crawlResult: crawl, seo, lh: null });
 
     expect(report.crawl.statusCodeDistribution[200]).toBe(1);
   });
@@ -296,7 +297,7 @@ describe("buildJsonReport", () => {
       elapsedMs: 100,
     };
     const seo: SeoResult = { pages: [], summary: { error: 0, warning: 0, info: 0 } };
-    const report = buildJsonReport(crawl, seo, null);
+    const report = buildJsonReport({ crawlResult: crawl, seo, lh: null });
 
     expect(report.crawl.redirectChains.length).toBe(1);
     expect(report.crawl.redirectChains[0].from).toBe("https://example.com/old");
@@ -308,7 +309,7 @@ describe("buildJsonReport", () => {
   it("generatedAt is a valid ISO-8601 string", () => {
     const crawl = makeMinimalCrawlResult();
     const seo = makeMinimalSeoResult();
-    const report = buildJsonReport(crawl, seo, null);
+    const report = buildJsonReport({ crawlResult: crawl, seo, lh: null });
 
     const date = new Date(report.generatedAt);
     expect(date.toISOString()).toBe(report.generatedAt);
@@ -321,7 +322,7 @@ describe("generateHtml", () => {
   function makeReport(): AuditReport {
     const crawl = makeMinimalCrawlResult();
     const seo = makeSeoResultWithMultipleIssues();
-    return buildJsonReport(crawl, seo, null);
+    return buildJsonReport({ crawlResult: crawl, seo, lh: null });
   }
 
   it("returns valid HTML with DOCTYPE", () => {

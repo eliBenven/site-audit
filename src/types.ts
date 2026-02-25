@@ -133,10 +133,14 @@ export interface RankedFix {
   /** impact * effort score (higher = fix first). */
   score: number;
   affectedUrls: string[];
-  category: "seo" | "performance" | "accessibility" | "images";
+  category: "seo" | "performance" | "accessibility" | "images" | "security" | "content";
 }
 
 export interface SiteLevelResult {
+  issues: SeoIssue[];
+}
+
+export interface IssueGroup {
   issues: SeoIssue[];
 }
 
@@ -152,8 +156,20 @@ export interface AuditReport {
     redirectChains: Array<{ from: string; chain: string[] }>;
   };
   seo: SeoResult;
-  /** Site-level checks (robots.txt, sitemap.xml). */
+  /** Site-level checks (robots.txt, sitemap.xml, security headers). */
   siteLevel?: SiteLevelResult;
+  /** External link check results. */
+  externalLinks?: IssueGroup & { checked: number; broken: number };
+  /** Accessibility check results. */
+  accessibility?: IssueGroup;
+  /** Crawl analysis (depth, crawl budget). */
+  crawlAnalysis?: IssueGroup;
+  /** Resource analysis (scripts, stylesheets). */
+  resources?: IssueGroup;
+  /** Content analysis (near-duplicate detection). */
+  contentAnalysis?: IssueGroup;
+  /** Image optimization results. */
+  imageOptimization?: IssueGroup;
   lighthouse: LighthouseResult | null;
   rankedFixes: RankedFix[];
 }

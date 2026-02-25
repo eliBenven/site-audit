@@ -12,13 +12,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mockResponse(body: string, status = 200) {
+function mockResponse(body: string, status = 200, headers: Record<string, string> = {}) {
+  const headerMap = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return Promise.resolve({
     ok: status >= 200 && status < 300,
     status,
     text: () => Promise.resolve(body),
+    headers: {
+      forEach: (cb: (value: string, key: string) => void) => {
+        headerMap.forEach((v, k) => cb(v, k));
+      },
+      get: (key: string) => headerMap.get(key.toLowerCase()) ?? null,
+    },
   });
 }
+
+// Security headers to include in mocks so security checks don't add noise
+const GOOD_SECURITY_HEADERS: Record<string, string> = {
+  "strict-transport-security": "max-age=31536000",
+  "content-security-policy": "default-src 'self'",
+  "x-frame-options": "DENY",
+  "x-content-type-options": "nosniff",
+};
 
 // ── robots.txt checks ──────────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ import type {
   CrawlResult,
   FixEffort,
   FixImpact,
+  IssueGroup,
   LighthouseResult,
   RankedFix,
   SeoResult,
@@ -27,8 +28,13 @@ export function score(impact: FixImpact, effort: FixEffort): number {
   return IMPACT_WEIGHT[impact] * EFFORT_WEIGHT[effort];
 }
 
-/** Build the ranked fix list from SEO + site-level + Lighthouse findings. */
-export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, siteLevel?: SiteLevelResult | null): RankedFix[] {
+/** Build the ranked fix list from all analysis findings. */
+export function buildRankedFixes(
+  seo: SeoResult,
+  lh: LighthouseResult | null,
+  siteLevel?: SiteLevelResult | null,
+  extras?: Array<IssueGroup | null | undefined>,
+): RankedFix[] {
   const fixMap = new Map<string, RankedFix>();
 
   // Helper to add/merge a fix
@@ -83,10 +89,24 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, si
     "redirect-chain-long": { title: "Shorten redirect chains (>2 hops)", impact: "medium", effort: "medium", category: "seo" },
     "duplicate-title": { title: "Fix duplicate page titles", impact: "medium", effort: "low", category: "seo" },
     "duplicate-meta-description": { title: "Fix duplicate meta descriptions", impact: "medium", effort: "low", category: "seo" },
-    "security-hsts-missing": { title: "Add Strict-Transport-Security header", impact: "medium", effort: "low", category: "seo" },
-    "security-csp-missing": { title: "Add Content-Security-Policy header", impact: "medium", effort: "medium", category: "seo" },
-    "security-x-frame-missing": { title: "Add X-Frame-Options header", impact: "medium", effort: "low", category: "seo" },
-    "security-x-content-type-missing": { title: "Add X-Content-Type-Options header", impact: "low", effort: "low", category: "seo" },
+    "security-hsts-missing": { title: "Add Strict-Transport-Security header", impact: "medium", effort: "low", category: "security" },
+    "security-csp-missing": { title: "Add Content-Security-Policy header", impact: "medium", effort: "medium", category: "security" },
+    "security-x-frame-missing": { title: "Add X-Frame-Options header", impact: "medium", effort: "low", category: "security" },
+    "security-x-content-type-missing": { title: "Add X-Content-Type-Options header", impact: "low", effort: "low", category: "security" },
+    "external-link-broken": { title: "Fix broken external links", impact: "medium", effort: "medium", category: "seo" },
+    "a11y-form-label-missing": { title: "Add labels to form fields", impact: "medium", effort: "low", category: "accessibility" },
+    "a11y-landmark-main-missing": { title: "Add <main> landmark element", impact: "medium", effort: "low", category: "accessibility" },
+    "a11y-landmark-nav-missing": { title: "Add <nav> landmark element", impact: "low", effort: "low", category: "accessibility" },
+    "a11y-skip-nav-missing": { title: "Add skip navigation link", impact: "low", effort: "low", category: "accessibility" },
+    "a11y-tabindex-positive": { title: "Remove positive tabindex values", impact: "medium", effort: "low", category: "accessibility" },
+    "link-depth-deep": { title: "Reduce page click depth (>3 clicks)", impact: "medium", effort: "medium", category: "seo" },
+    "crawl-budget-parameterized": { title: "Reduce parameterized URL variants", impact: "medium", effort: "medium", category: "seo" },
+    "resource-render-blocking": { title: "Defer render-blocking scripts", impact: "high", effort: "medium", category: "performance" },
+    "resource-excessive": { title: "Reduce external resource count", impact: "medium", effort: "medium", category: "performance" },
+    "resource-third-party-heavy": { title: "Reduce third-party dependencies", impact: "medium", effort: "high", category: "performance" },
+    "content-near-duplicate": { title: "Consolidate near-duplicate pages", impact: "medium", effort: "high", category: "content" },
+    "img-format-not-optimal": { title: "Convert images to WebP/AVIF", impact: "medium", effort: "medium", category: "images" },
+    "img-file-too-large": { title: "Compress oversized images", impact: "high", effort: "medium", category: "images" },
   };
 
   for (const page of seo.pages) {
@@ -118,6 +138,26 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, si
           affectedUrls: [issue.url],
           category: cfg.category,
         });
+      }
+    }
+  }
+
+  // Extra analysis modules (accessibility, resources, content, images, etc.)
+  if (extras) {
+    for (const group of extras) {
+      if (!group) continue;
+      for (const issue of group.issues) {
+        const cfg = ruleConfig[issue.rule];
+        if (cfg) {
+          addFix(issue.rule, {
+            title: cfg.title,
+            description: issue.message,
+            impact: cfg.impact,
+            effort: cfg.effort,
+            affectedUrls: [issue.url],
+            category: cfg.category,
+          });
+        }
       }
     }
   }
@@ -160,13 +200,22 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, si
 
 // ── JSON Report ──────────────────────────────────────────────────────────────
 
-export function buildJsonReport(
-  crawlResult: CrawlResult,
-  seo: SeoResult,
-  lh: LighthouseResult | null,
-  siteLevel?: SiteLevelResult | null,
-): AuditReport {
-  // Status code distribution
+export interface ReportInputs {
+  crawlResult: CrawlResult;
+  seo: SeoResult;
+  lh: LighthouseResult | null;
+  siteLevel?: SiteLevelResult | null;
+  externalLinks?: IssueGroup & { checked: number; broken: number } | null;
+  accessibility?: IssueGroup | null;
+  crawlAnalysis?: IssueGroup | null;
+  resources?: IssueGroup | null;
+  contentAnalysis?: IssueGroup | null;
+  imageOptimization?: IssueGroup | null;
+}
+
+export function buildJsonReport(inputs: ReportInputs): AuditReport {
+  const { crawlResult, seo, lh, siteLevel } = inputs;
+
   const statusCodeDist: Record<number, number> = {};
   const redirectChains: Array<{ from: string; chain: string[] }> = [];
 
@@ -177,6 +226,15 @@ export function buildJsonReport(
       redirectChains.push({ from: url, chain: node.redirectChain });
     }
   }
+
+  const extras = [
+    inputs.externalLinks,
+    inputs.accessibility,
+    inputs.crawlAnalysis,
+    inputs.resources,
+    inputs.contentAnalysis,
+    inputs.imageOptimization,
+  ];
 
   return {
     generatedAt: new Date().toISOString(),
@@ -190,8 +248,14 @@ export function buildJsonReport(
     },
     seo,
     ...(siteLevel ? { siteLevel } : {}),
+    ...(inputs.externalLinks ? { externalLinks: inputs.externalLinks } : {}),
+    ...(inputs.accessibility ? { accessibility: inputs.accessibility } : {}),
+    ...(inputs.crawlAnalysis ? { crawlAnalysis: inputs.crawlAnalysis } : {}),
+    ...(inputs.resources ? { resources: inputs.resources } : {}),
+    ...(inputs.contentAnalysis ? { contentAnalysis: inputs.contentAnalysis } : {}),
+    ...(inputs.imageOptimization ? { imageOptimization: inputs.imageOptimization } : {}),
     lighthouse: lh,
-    rankedFixes: buildRankedFixes(seo, lh, siteLevel),
+    rankedFixes: buildRankedFixes(seo, lh, siteLevel, extras),
   };
 }
 
@@ -373,13 +437,10 @@ export function generateHtml(report: AuditReport): string {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function generateReport(
-  crawlResult: CrawlResult,
-  seo: SeoResult,
-  lh: LighthouseResult | null,
+  inputs: ReportInputs,
   outputDir: string,
-  siteLevel?: SiteLevelResult | null,
 ): Promise<{ jsonPath: string; htmlPath: string; report: AuditReport }> {
-  const report = buildJsonReport(crawlResult, seo, lh, siteLevel);
+  const report = buildJsonReport(inputs);
   const html = generateHtml(report);
 
   const jsonPath = path.join(outputDir, "report.json");

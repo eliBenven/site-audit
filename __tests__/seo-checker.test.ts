@@ -337,7 +337,8 @@ describe("Summary aggregation", () => {
     expect(result.summary.error).toBe(2);
     // warnings: meta-description-missing, og-image-missing, viewport-missing, html-lang-missing
     expect(result.summary.warning).toBe(4);
-    // info: canonical-missing, og-title-missing, og-description-missing, og-url-missing, structured-data-missing
-    expect(result.summary.info).toBe(5);
+    // info: canonical-missing, og-title-missing, og-description-missing, og-url-missing,
+    //       structured-data-missing, twitter-card-missing, twitter-image-missing, thin-content
+    expect(result.summary.info).toBe(8);
   });
 });

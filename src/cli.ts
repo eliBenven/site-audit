@@ -18,7 +18,14 @@ import { crawl } from "./crawler.js";
 import { checkSeo } from "./seo-checker.js";
 import { runLighthouse } from "./lighthouse-runner.js";
 import { generateReport, generateHtmlFromJson } from "./reporter.js";
+import type { ReportInputs } from "./reporter.js";
 import { checkSiteLevel } from "./site-checker.js";
+import { checkExternalLinks } from "./link-checker.js";
+import { checkAccessibility } from "./accessibility-checker.js";
+import { analyzeCrawl } from "./crawl-analyzer.js";
+import { analyzeResources } from "./resource-analyzer.js";
+import { analyzeContent } from "./content-analyzer.js";
+import { checkImageOptimization } from "./image-checker.js";
 import type { CrawlOptions, LighthouseOptions } from "./types.js";
 
 const program = new Command();
@@ -110,8 +117,11 @@ program
       const outputDir = path.resolve(opts.output);
       await mkdir(outputDir, { recursive: true });
 
+      const totalSteps = opts.skipLighthouse ? 7 : 8;
+      const step = (n: number) => `Step ${n}/${totalSteps}`;
+
       // Step 1: Crawl
-      const crawlSpinner = ora("Step 1/5: Crawling website...").start();
+      const crawlSpinner = ora(`${step(1)}: Crawling website...`).start();
       let crawlResult;
       try {
         const crawlOpts: Partial<CrawlOptions> = {
@@ -131,14 +141,14 @@ program
       }
 
       // Step 2: SEO checks
-      const seoSpinner = ora("Step 2/5: Running SEO checks...").start();
+      const seoSpinner = ora(`${step(2)}: Running SEO checks...`).start();
       const seoResult = checkSeo(crawlResult);
       seoSpinner.succeed(
         `SEO: ${seoResult.summary.error} errors, ${seoResult.summary.warning} warnings, ${seoResult.summary.info} info`,
       );
 
-      // Step 3: Site-level checks
-      const siteSpinner = ora("Step 3/5: Checking robots.txt & sitemap.xml...").start();
+      // Step 3: Site-level checks (robots.txt, sitemap.xml, security headers)
+      const siteSpinner = ora(`${step(3)}: Checking site-level (robots, sitemap, security headers)...`).start();
       let siteLevelResult = null;
       try {
         siteLevelResult = await checkSiteLevel(url);
@@ -148,14 +158,47 @@ program
         );
       } catch (err) {
         siteSpinner.warn(
-          `Site-level checks failed: ${err instanceof Error ? err.message : String(err)}. Continuing without site-level data.`,
+          `Site-level checks failed: ${err instanceof Error ? err.message : String(err)}. Continuing.`,
         );
       }
 
-      // Step 4: Lighthouse
+      // Step 4: External link checks
+      const linkSpinner = ora(`${step(4)}: Checking external links...`).start();
+      let externalLinksResult = null;
+      try {
+        externalLinksResult = await checkExternalLinks(crawlResult);
+        linkSpinner.succeed(
+          `External links: ${externalLinksResult.checked} checked, ${externalLinksResult.broken} broken`,
+        );
+      } catch (err) {
+        linkSpinner.warn(
+          `External link check failed: ${err instanceof Error ? err.message : String(err)}. Continuing.`,
+        );
+      }
+
+      // Step 5: Extended analysis (accessibility, crawl depth, resources, content, images)
+      const extSpinner = ora(`${step(5)}: Running extended analysis...`).start();
+      const accessibilityResult = checkAccessibility(crawlResult);
+      const crawlAnalysisResult = analyzeCrawl(crawlResult);
+      const resourcesResult = analyzeResources(crawlResult);
+      const contentAnalysisResult = analyzeContent(crawlResult);
+      let imageResult = null;
+      try {
+        imageResult = await checkImageOptimization(crawlResult);
+      } catch { /* non-fatal */ }
+      const extIssueCount =
+        accessibilityResult.issues.length +
+        crawlAnalysisResult.issues.length +
+        resourcesResult.issues.length +
+        contentAnalysisResult.issues.length +
+        (imageResult?.issues.length ?? 0);
+      extSpinner.succeed(`Extended analysis: ${extIssueCount} issues found`);
+
+      // Step 6: Lighthouse
       let lighthouseResult = null;
+      const lhStep = opts.skipLighthouse ? null : step(6);
       if (!opts.skipLighthouse) {
-        const lhSpinner = ora("Step 4/5: Running Lighthouse audits...").start();
+        const lhSpinner = ora(`${lhStep}: Running Lighthouse audits...`).start();
         try {
           const lhOpts: Partial<LighthouseOptions> = {
             sampleSize: parseInt(opts.lighthouseSamples, 10),
@@ -167,23 +210,30 @@ program
           );
         } catch (err) {
           lhSpinner.warn(
-            `Lighthouse failed: ${err instanceof Error ? err.message : String(err)}. Continuing without performance data.`,
+            `Lighthouse failed: ${err instanceof Error ? err.message : String(err)}. Continuing.`,
           );
         }
       } else {
-        console.log(chalk.dim("  Step 4/5: Lighthouse skipped (--skip-lighthouse)"));
+        console.log(chalk.dim(`  ${step(6)}: Lighthouse skipped (--skip-lighthouse)`));
       }
 
-      // Step 5: Generate report
-      const reportSpinner = ora("Step 5/5: Generating reports...").start();
+      // Final step: Generate report
+      const reportStep = opts.skipLighthouse ? step(7) : step(totalSteps);
+      const reportSpinner = ora(`${reportStep}: Generating reports...`).start();
       try {
-        const { jsonPath, htmlPath, report } = await generateReport(
+        const inputs: ReportInputs = {
           crawlResult,
-          seoResult,
-          lighthouseResult,
-          outputDir,
-          siteLevelResult,
-        );
+          seo: seoResult,
+          lh: lighthouseResult,
+          siteLevel: siteLevelResult,
+          externalLinks: externalLinksResult,
+          accessibility: accessibilityResult,
+          crawlAnalysis: crawlAnalysisResult,
+          resources: resourcesResult,
+          contentAnalysis: contentAnalysisResult,
+          imageOptimization: imageResult,
+        };
+        const { jsonPath, htmlPath, report } = await generateReport(inputs, outputDir);
         reportSpinner.succeed("Reports generated");
 
         console.log("");
