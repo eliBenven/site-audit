@@ -11,23 +11,32 @@ export interface SiteLevelResult {
   issues: SeoIssue[];
 }
 
-async function fetchText(url: string, timeoutMs = 10_000): Promise<{ ok: boolean; status: number; text: string }> {
+interface FetchResult {
+  ok: boolean;
+  status: number;
+  text: string;
+  headers: Map<string, string>;
+}
+
+async function fetchWithHeaders(url: string, timeoutMs = 10_000): Promise<FetchResult> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, { signal: controller.signal, redirect: "follow" });
     clearTimeout(timer);
     const text = await res.text();
-    return { ok: res.ok, status: res.status, text };
+    const headers = new Map<string, string>();
+    res.headers.forEach((v, k) => headers.set(k.toLowerCase(), v));
+    return { ok: res.ok, status: res.status, text, headers };
   } catch {
-    return { ok: false, status: 0, text: "" };
+    return { ok: false, status: 0, text: "", headers: new Map() };
   }
 }
 
 async function checkRobotsTxt(baseUrl: string): Promise<SeoIssue[]> {
   const issues: SeoIssue[] = [];
   const url = new URL("/robots.txt", baseUrl).href;
-  const { ok, text } = await fetchText(url);
+  const { ok, text } = await fetchWithHeaders(url);
 
   if (!ok) {
     issues.push({
@@ -57,7 +66,7 @@ async function checkRobotsTxt(baseUrl: string): Promise<SeoIssue[]> {
 async function checkSitemapXml(baseUrl: string): Promise<SeoIssue[]> {
   const issues: SeoIssue[] = [];
   const url = new URL("/sitemap.xml", baseUrl).href;
-  const { ok, text } = await fetchText(url);
+  const { ok, text } = await fetchWithHeaders(url);
 
   if (!ok) {
     issues.push({
@@ -83,12 +92,55 @@ async function checkSitemapXml(baseUrl: string): Promise<SeoIssue[]> {
   return issues;
 }
 
+async function checkSecurityHeaders(baseUrl: string): Promise<SeoIssue[]> {
+  const issues: SeoIssue[] = [];
+  const { ok, headers } = await fetchWithHeaders(baseUrl);
+  if (!ok) return issues;
+
+  const checks: Array<{ header: string; rule: string; message: string }> = [
+    {
+      header: "strict-transport-security",
+      rule: "security-hsts-missing",
+      message: "Missing Strict-Transport-Security header. Browsers won't enforce HTTPS.",
+    },
+    {
+      header: "content-security-policy",
+      rule: "security-csp-missing",
+      message: "Missing Content-Security-Policy header. Site is more vulnerable to XSS.",
+    },
+    {
+      header: "x-frame-options",
+      rule: "security-x-frame-missing",
+      message: "Missing X-Frame-Options header. Site may be vulnerable to clickjacking.",
+    },
+    {
+      header: "x-content-type-options",
+      rule: "security-x-content-type-missing",
+      message: "Missing X-Content-Type-Options header. Browsers may MIME-sniff responses.",
+    },
+  ];
+
+  for (const check of checks) {
+    if (!headers.has(check.header)) {
+      issues.push({
+        rule: check.rule,
+        severity: "warning",
+        message: check.message,
+        url: baseUrl,
+      });
+    }
+  }
+
+  return issues;
+}
+
 export async function checkSiteLevel(startUrl: string): Promise<SiteLevelResult> {
   const origin = new URL(startUrl).origin;
-  const [robotsIssues, sitemapIssues] = await Promise.all([
+  const [robotsIssues, sitemapIssues, securityIssues] = await Promise.all([
     checkRobotsTxt(origin),
     checkSitemapXml(origin),
+    checkSecurityHeaders(origin),
   ]);
 
-  return { issues: [...robotsIssues, ...sitemapIssues] };
+  return { issues: [...robotsIssues, ...sitemapIssues, ...securityIssues] };
 }

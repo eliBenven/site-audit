@@ -83,6 +83,10 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, si
     "redirect-chain-long": { title: "Shorten redirect chains (>2 hops)", impact: "medium", effort: "medium", category: "seo" },
     "duplicate-title": { title: "Fix duplicate page titles", impact: "medium", effort: "low", category: "seo" },
     "duplicate-meta-description": { title: "Fix duplicate meta descriptions", impact: "medium", effort: "low", category: "seo" },
+    "security-hsts-missing": { title: "Add Strict-Transport-Security header", impact: "medium", effort: "low", category: "seo" },
+    "security-csp-missing": { title: "Add Content-Security-Policy header", impact: "medium", effort: "medium", category: "seo" },
+    "security-x-frame-missing": { title: "Add X-Frame-Options header", impact: "medium", effort: "low", category: "seo" },
+    "security-x-content-type-missing": { title: "Add X-Content-Type-Options header", impact: "low", effort: "low", category: "seo" },
   };
 
   for (const page of seo.pages) {
