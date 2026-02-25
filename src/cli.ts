@@ -10,7 +10,7 @@
  */
 
 import { Command } from "commander";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile as writeFileFs } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import ora from "ora";
@@ -251,6 +251,14 @@ program
           imageOptimization: imageResult,
         };
         const { jsonPath, htmlPath, report } = await generateReport(inputs, outputDir);
+
+        // Save timestamped copy for history
+        const historyDir = path.join(outputDir, "history");
+        await mkdir(historyDir, { recursive: true });
+        const ts = report.generatedAt.replace(/[:.]/g, "-");
+        const historyPath = path.join(historyDir, `report-${ts}.json`);
+        await writeFileFs(historyPath, JSON.stringify(report, null, 2), "utf-8");
+
         reportSpinner.succeed("Reports generated");
 
         console.log("");
@@ -315,6 +323,91 @@ program
     } catch (err) {
       spinner.fail("Report generation failed");
       console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+  });
+
+// ── history ─────────────────────────────────────────────────────────────────
+
+program
+  .command("history")
+  .description("List past audit runs from the history directory")
+  .option("-o, --output <dir>", "Output directory with history", "./site-audit-output")
+  .action(async (opts: Record<string, string>) => {
+    const historyDir = path.join(path.resolve(opts.output), "history");
+    try {
+      const files = (await readdir(historyDir)).filter((f) => f.endsWith(".json")).sort();
+      if (files.length === 0) {
+        console.log("No audit history found.");
+        return;
+      }
+      console.log(chalk.bold(`${files.length} past audit(s):\n`));
+      for (const file of files) {
+        const raw = await readFile(path.join(historyDir, file), "utf-8");
+        const report = JSON.parse(raw) as { generatedAt: string; startUrl: string; seo: { summary: { error: number; warning: number } }; crawl: { totalPages: number } };
+        console.log(
+          `  ${report.generatedAt}  ${report.startUrl}  ` +
+          `${report.crawl.totalPages} pages  ` +
+          `${chalk.red(String(report.seo.summary.error))} errors  ` +
+          `${chalk.yellow(String(report.seo.summary.warning))} warnings`,
+        );
+      }
+    } catch {
+      console.log("No audit history found. Run `site-audit audit <url>` first.");
+    }
+  });
+
+// ── diff ────────────────────────────────────────────────────────────────────
+
+program
+  .command("diff <before-json> <after-json>")
+  .description("Compare two audit reports and show changes")
+  .action(async (beforePath: string, afterPath: string) => {
+    try {
+      const [beforeRaw, afterRaw] = await Promise.all([
+        readFile(path.resolve(beforePath), "utf-8"),
+        readFile(path.resolve(afterPath), "utf-8"),
+      ]);
+      const before = JSON.parse(beforeRaw) as { seo: { summary: Record<string, number>; pages: Array<{ issues: Array<{ rule: string }> }> }; rankedFixes: Array<{ title: string }> };
+      const after = JSON.parse(afterRaw) as typeof before;
+
+      console.log(chalk.bold("Audit Diff Report\n"));
+
+      // Summary delta
+      for (const sev of ["error", "warning", "info"]) {
+        const bCount = before.seo.summary[sev] ?? 0;
+        const aCount = after.seo.summary[sev] ?? 0;
+        const delta = aCount - bCount;
+        const arrow = delta > 0 ? chalk.red(`+${delta}`) : delta < 0 ? chalk.green(`${delta}`) : chalk.dim("0");
+        console.log(`  ${sev.padEnd(8)} ${bCount} -> ${aCount} (${arrow})`);
+      }
+
+      // New vs resolved rules
+      const beforeRules = new Set(before.seo.pages.flatMap((p) => p.issues.map((i) => i.rule)));
+      const afterRules = new Set(after.seo.pages.flatMap((p) => p.issues.map((i) => i.rule)));
+
+      const newRules = [...afterRules].filter((r) => !beforeRules.has(r));
+      const resolvedRules = [...beforeRules].filter((r) => !afterRules.has(r));
+
+      if (newRules.length > 0) {
+        console.log(chalk.red(`\n  New issue types (${newRules.length}):`));
+        for (const r of newRules) console.log(`    + ${r}`);
+      }
+      if (resolvedRules.length > 0) {
+        console.log(chalk.green(`\n  Resolved issue types (${resolvedRules.length}):`));
+        for (const r of resolvedRules) console.log(`    - ${r}`);
+      }
+
+      // Fix count delta
+      const bFixes = before.rankedFixes?.length ?? 0;
+      const aFixes = after.rankedFixes?.length ?? 0;
+      console.log(`\n  Ranked fixes: ${bFixes} -> ${aFixes}`);
+
+      if (newRules.length === 0 && resolvedRules.length === 0) {
+        console.log(chalk.dim("\n  No new or resolved issue types between reports."));
+      }
+    } catch (err) {
+      console.error(chalk.red(`Failed to diff: ${err instanceof Error ? err.message : String(err)}`));
       process.exit(1);
     }
   });
