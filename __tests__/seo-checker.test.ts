@@ -226,14 +226,118 @@ describe("Status code checks", () => {
 
 // ── Summary aggregation ─────────────────────────────────────────────────────
 
+// ── Meta content regex fix ──────────────────────────────────────────────────
+
+describe("Meta content regex (apostrophe handling)", () => {
+  it("does not truncate at an apostrophe inside double quotes", () => {
+    const html = `<html><head><meta name="description" content="VenTech's digital solutions are top-notch and reliable for everyone."></head><body></body></html>`;
+    const result = checkSeo(makeCrawlResult(html));
+    const desc = result.pages[0].metaDescription;
+    expect(desc).toBe("VenTech's digital solutions are top-notch and reliable for everyone.");
+  });
+
+  it("handles content-first ordering with apostrophe in double quotes", () => {
+    const html = `<html><head><meta content="It's a great page" name="description"></head><body></body></html>`;
+    const result = checkSeo(makeCrawlResult(html));
+    expect(result.pages[0].metaDescription).toBe("It's a great page");
+  });
+
+  it("handles single-quoted meta values", () => {
+    const html = `<html><head><meta name='description' content='A fine description here'></head><body></body></html>`;
+    const result = checkSeo(makeCrawlResult(html));
+    expect(result.pages[0].metaDescription).toBe("A fine description here");
+  });
+});
+
+// ── Open Graph checks ──────────────────────────────────────────────────────
+
+describe("Open Graph checks", () => {
+  it("detects missing OG tags", () => {
+    const issues = getIssues("<html><head></head><body></body></html>");
+    expect(hasRule(issues, "og-title-missing")).toBe(true);
+    expect(hasRule(issues, "og-description-missing")).toBe(true);
+    expect(hasRule(issues, "og-image-missing")).toBe(true);
+    expect(hasRule(issues, "og-url-missing")).toBe(true);
+  });
+
+  it("passes when all OG tags are present", () => {
+    const html = `<html><head>
+      <meta property="og:title" content="My Page">
+      <meta property="og:description" content="A description">
+      <meta property="og:image" content="https://example.com/img.png">
+      <meta property="og:url" content="https://example.com">
+    </head><body></body></html>`;
+    const issues = getIssues(html);
+    expect(hasRule(issues, "og-title-missing")).toBe(false);
+    expect(hasRule(issues, "og-description-missing")).toBe(false);
+    expect(hasRule(issues, "og-image-missing")).toBe(false);
+    expect(hasRule(issues, "og-url-missing")).toBe(false);
+  });
+
+  it("og-image-missing is a warning, others are info", () => {
+    const issues = getIssues("<html><head></head><body></body></html>");
+    expect(issues.find((i) => i.rule === "og-image-missing")?.severity).toBe("warning");
+    expect(issues.find((i) => i.rule === "og-title-missing")?.severity).toBe("info");
+  });
+});
+
+// ── Viewport check ─────────────────────────────────────────────────────────
+
+describe("Viewport check", () => {
+  it("detects missing viewport", () => {
+    const issues = getIssues("<html><head></head><body></body></html>");
+    expect(hasRule(issues, "viewport-missing")).toBe(true);
+  });
+
+  it("passes when viewport is present", () => {
+    const issues = getIssues(
+      '<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body></body></html>',
+    );
+    expect(hasRule(issues, "viewport-missing")).toBe(false);
+  });
+});
+
+// ── HTML lang check ────────────────────────────────────────────────────────
+
+describe("HTML lang check", () => {
+  it("detects missing lang attribute", () => {
+    const issues = getIssues("<html><head></head><body></body></html>");
+    expect(hasRule(issues, "html-lang-missing")).toBe(true);
+  });
+
+  it("passes when lang attribute is present", () => {
+    const issues = getIssues('<html lang="en"><head></head><body></body></html>');
+    expect(hasRule(issues, "html-lang-missing")).toBe(false);
+  });
+});
+
+// ── Structured data check ──────────────────────────────────────────────────
+
+describe("Structured data check", () => {
+  it("detects missing JSON-LD", () => {
+    const issues = getIssues("<html><head></head><body></body></html>");
+    expect(hasRule(issues, "structured-data-missing")).toBe(true);
+  });
+
+  it("passes when JSON-LD script is present", () => {
+    const issues = getIssues(
+      '<html><head><script type="application/ld+json">{"@context":"https://schema.org"}</script></head><body></body></html>',
+    );
+    expect(hasRule(issues, "structured-data-missing")).toBe(false);
+  });
+});
+
+// ── Summary aggregation ─────────────────────────────────────────────────────
+
 describe("Summary aggregation", () => {
   it("correctly counts issues by severity", () => {
-    // Missing title = error, missing meta = warning, missing canonical = info, missing h1 = error
     const html = "<html><head></head><body><p>no heading</p></body></html>";
     const result = checkSeo(makeCrawlResult(html));
-    // title-missing (error), meta-description-missing (warning), h1-missing (error), canonical-missing (info)
-    expect(result.summary.error).toBe(2); // title-missing + h1-missing
-    expect(result.summary.warning).toBe(1); // meta-description-missing
-    expect(result.summary.info).toBe(1); // canonical-missing
+    // errors: title-missing, h1-missing
+    expect(result.summary.error).toBe(2);
+    // warnings: meta-description-missing, og-image-missing, viewport-missing, html-lang-missing
+    expect(result.summary.warning).toBe(4);
+    // info: canonical-missing, og-title-missing, og-description-missing, og-url-missing, structured-data-missing
+    expect(result.summary.info).toBe(5);
   });
 });
