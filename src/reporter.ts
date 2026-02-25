@@ -74,6 +74,15 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, si
     "robots-txt-disallow-all": { title: "Fix robots.txt blocking all crawlers", impact: "high", effort: "low", category: "seo" },
     "sitemap-xml-missing": { title: "Add sitemap.xml", impact: "medium", effort: "low", category: "seo" },
     "sitemap-xml-invalid": { title: "Fix invalid sitemap.xml", impact: "medium", effort: "low", category: "seo" },
+    "heading-hierarchy-skip": { title: "Fix heading hierarchy (skipped levels)", impact: "medium", effort: "low", category: "accessibility" },
+    "thin-content": { title: "Add more content to thin pages", impact: "medium", effort: "high", category: "seo" },
+    "meta-robots-noindex": { title: "Remove accidental noindex directives", impact: "high", effort: "low", category: "seo" },
+    "twitter-card-missing": { title: "Add Twitter Card meta tags", impact: "low", effort: "low", category: "seo" },
+    "twitter-image-missing": { title: "Add Twitter Card image tags", impact: "low", effort: "low", category: "seo" },
+    "mixed-content": { title: "Fix mixed HTTP/HTTPS content", impact: "high", effort: "medium", category: "seo" },
+    "redirect-chain-long": { title: "Shorten redirect chains (>2 hops)", impact: "medium", effort: "medium", category: "seo" },
+    "duplicate-title": { title: "Fix duplicate page titles", impact: "medium", effort: "low", category: "seo" },
+    "duplicate-meta-description": { title: "Fix duplicate meta descriptions", impact: "medium", effort: "low", category: "seo" },
   };
 
   for (const page of seo.pages) {

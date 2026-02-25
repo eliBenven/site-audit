@@ -278,6 +278,108 @@ function checkStructuredData(html: string, url: string): SeoIssue[] {
   return issues;
 }
 
+function checkHeadingHierarchy(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const headingRe = /<(h[1-6])[\s>]/gi;
+  const levels: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(html)) !== null) {
+    levels.push(parseInt(m[1][1], 10));
+  }
+  for (let i = 1; i < levels.length; i++) {
+    if (levels[i] > levels[i - 1] + 1) {
+      issues.push({
+        rule: "heading-hierarchy-skip",
+        severity: "warning",
+        message: `Heading jumps from <h${levels[i - 1]}> to <h${levels[i]}>. Don't skip levels.`,
+        url,
+      });
+      break;
+    }
+  }
+  return issues;
+}
+
+function checkThinContent(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&\w+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
+
+  if (wordCount < 300) {
+    issues.push({
+      rule: "thin-content",
+      severity: "info",
+      message: `Page has only ${wordCount} words. Thin content may rank poorly.`,
+      url,
+    });
+  }
+  return issues;
+}
+
+function checkMetaRobots(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const content = getMetaContent(html, "robots");
+  if (content) {
+    const directives = content.toLowerCase().split(",").map((d) => d.trim());
+    if (directives.includes("noindex")) {
+      issues.push({
+        rule: "meta-robots-noindex",
+        severity: "error",
+        message: "Page has a noindex directive — it will be excluded from search results.",
+        url,
+      });
+    }
+  }
+  return issues;
+}
+
+function checkTwitterCards(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  if (!getMetaContent(html, "twitter:card")) {
+    issues.push({ rule: "twitter-card-missing", severity: "info", message: "Page is missing a twitter:card meta tag.", url });
+  }
+  if (!getMetaContent(html, "twitter:image")) {
+    issues.push({ rule: "twitter-image-missing", severity: "info", message: "Page is missing a twitter:image meta tag.", url });
+  }
+  return issues;
+}
+
+function checkMixedContent(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  if (!url.startsWith("https://")) return issues;
+
+  const httpRe = /(?:src|href)=["']http:\/\/[^"']+["']/gi;
+  const matches = html.match(httpRe);
+  if (matches && matches.length > 0) {
+    issues.push({
+      rule: "mixed-content",
+      severity: "warning",
+      message: `Page loads ${matches.length} resource(s) over insecure HTTP.`,
+      url,
+    });
+  }
+  return issues;
+}
+
+function checkRedirectChain(redirectChain: string[], url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  if (redirectChain.length > 2) {
+    issues.push({
+      rule: "redirect-chain-long",
+      severity: "warning",
+      message: `Redirect chain has ${redirectChain.length} hops. Keep chains under 3 to preserve link equity.`,
+      url,
+    });
+  }
+  return issues;
+}
+
 function checkStatusCode(statusCode: number, url: string): SeoIssue[] {
   const issues: SeoIssue[] = [];
 
@@ -312,12 +414,18 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
       ...checkTitle(html, url),
       ...checkMetaDescription(html, url),
       ...checkH1(html, url),
+      ...checkHeadingHierarchy(html, url),
       ...checkImages(html, url),
       ...checkCanonical(html, url),
       ...checkOpenGraph(html, url),
       ...checkViewport(html, url),
       ...checkLang(html, url),
       ...checkStructuredData(html, url),
+      ...checkMetaRobots(html, url),
+      ...checkTwitterCards(html, url),
+      ...checkMixedContent(html, url),
+      ...checkThinContent(html, url),
+      ...checkRedirectChain(node.redirectChain, url),
       ...checkStatusCode(node.statusCode, url),
     ];
 
@@ -333,6 +441,56 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
       canonicalUrl: getCanonical(html),
       issues,
     });
+  }
+
+  // Cross-page: duplicate titles
+  const titleMap = new Map<string, string[]>();
+  for (const page of pageResults) {
+    if (page.title) {
+      const urls = titleMap.get(page.title) ?? [];
+      urls.push(page.url);
+      titleMap.set(page.title, urls);
+    }
+  }
+  for (const [title, urls] of titleMap) {
+    if (urls.length > 1) {
+      for (const url of urls) {
+        const page = pageResults.find((p) => p.url === url)!;
+        const issue: SeoIssue = {
+          rule: "duplicate-title",
+          severity: "warning",
+          message: `Title "${title}" is shared by ${urls.length} pages.`,
+          url,
+        };
+        page.issues.push(issue);
+        summary.warning++;
+      }
+    }
+  }
+
+  // Cross-page: duplicate meta descriptions
+  const descMap = new Map<string, string[]>();
+  for (const page of pageResults) {
+    if (page.metaDescription) {
+      const urls = descMap.get(page.metaDescription) ?? [];
+      urls.push(page.url);
+      descMap.set(page.metaDescription, urls);
+    }
+  }
+  for (const [desc, urls] of descMap) {
+    if (urls.length > 1) {
+      for (const url of urls) {
+        const page = pageResults.find((p) => p.url === url)!;
+        const issue: SeoIssue = {
+          rule: "duplicate-meta-description",
+          severity: "warning",
+          message: `Meta description is shared by ${urls.length} pages.`,
+          url,
+        };
+        page.issues.push(issue);
+        summary.warning++;
+      }
+    }
   }
 
   return { pages: pageResults, summary };
