@@ -18,6 +18,7 @@ import { crawl } from "./crawler.js";
 import { checkSeo } from "./seo-checker.js";
 import { runLighthouse } from "./lighthouse-runner.js";
 import { generateReport, generateHtmlFromJson } from "./reporter.js";
+import { checkSiteLevel } from "./site-checker.js";
 import type { CrawlOptions, LighthouseOptions } from "./types.js";
 
 const program = new Command();
@@ -110,7 +111,7 @@ program
       await mkdir(outputDir, { recursive: true });
 
       // Step 1: Crawl
-      const crawlSpinner = ora("Step 1/4: Crawling website...").start();
+      const crawlSpinner = ora("Step 1/5: Crawling website...").start();
       let crawlResult;
       try {
         const crawlOpts: Partial<CrawlOptions> = {
@@ -130,16 +131,31 @@ program
       }
 
       // Step 2: SEO checks
-      const seoSpinner = ora("Step 2/4: Running SEO checks...").start();
+      const seoSpinner = ora("Step 2/5: Running SEO checks...").start();
       const seoResult = checkSeo(crawlResult);
       seoSpinner.succeed(
         `SEO: ${seoResult.summary.error} errors, ${seoResult.summary.warning} warnings, ${seoResult.summary.info} info`,
       );
 
-      // Step 3: Lighthouse
+      // Step 3: Site-level checks
+      const siteSpinner = ora("Step 3/5: Checking robots.txt & sitemap.xml...").start();
+      let siteLevelResult = null;
+      try {
+        siteLevelResult = await checkSiteLevel(url);
+        const siteIssueCount = siteLevelResult.issues.length;
+        siteSpinner.succeed(
+          `Site-level: ${siteIssueCount} issue${siteIssueCount === 1 ? "" : "s"} found`,
+        );
+      } catch (err) {
+        siteSpinner.warn(
+          `Site-level checks failed: ${err instanceof Error ? err.message : String(err)}. Continuing without site-level data.`,
+        );
+      }
+
+      // Step 4: Lighthouse
       let lighthouseResult = null;
       if (!opts.skipLighthouse) {
-        const lhSpinner = ora("Step 3/4: Running Lighthouse audits...").start();
+        const lhSpinner = ora("Step 4/5: Running Lighthouse audits...").start();
         try {
           const lhOpts: Partial<LighthouseOptions> = {
             sampleSize: parseInt(opts.lighthouseSamples, 10),
@@ -155,17 +171,18 @@ program
           );
         }
       } else {
-        console.log(chalk.dim("  Step 3/4: Lighthouse skipped (--skip-lighthouse)"));
+        console.log(chalk.dim("  Step 4/5: Lighthouse skipped (--skip-lighthouse)"));
       }
 
-      // Step 4: Generate report
-      const reportSpinner = ora("Step 4/4: Generating reports...").start();
+      // Step 5: Generate report
+      const reportSpinner = ora("Step 5/5: Generating reports...").start();
       try {
         const { jsonPath, htmlPath, report } = await generateReport(
           crawlResult,
           seoResult,
           lighthouseResult,
           outputDir,
+          siteLevelResult,
         );
         reportSpinner.succeed("Reports generated");
 

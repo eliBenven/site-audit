@@ -136,6 +136,10 @@ export interface RankedFix {
   category: "seo" | "performance" | "accessibility" | "images";
 }
 
+export interface SiteLevelResult {
+  issues: SeoIssue[];
+}
+
 export interface AuditReport {
   /** ISO-8601 timestamp. */
   generatedAt: string;
@@ -148,6 +152,8 @@ export interface AuditReport {
     redirectChains: Array<{ from: string; chain: string[] }>;
   };
   seo: SeoResult;
+  /** Site-level checks (robots.txt, sitemap.xml). */
+  siteLevel?: SiteLevelResult;
   lighthouse: LighthouseResult | null;
   rankedFixes: RankedFix[];
 }

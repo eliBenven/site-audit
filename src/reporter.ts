@@ -15,6 +15,7 @@ import type {
   LighthouseResult,
   RankedFix,
   SeoResult,
+  SiteLevelResult,
 } from "./types.js";
 
 // ── Impact x Effort scoring ─────────────────────────────────────────────────
@@ -26,8 +27,8 @@ export function score(impact: FixImpact, effort: FixEffort): number {
   return IMPACT_WEIGHT[impact] * EFFORT_WEIGHT[effort];
 }
 
-/** Build the ranked fix list from SEO + Lighthouse findings. */
-export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null): RankedFix[] {
+/** Build the ranked fix list from SEO + site-level + Lighthouse findings. */
+export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null, siteLevel?: SiteLevelResult | null): RankedFix[] {
   const fixMap = new Map<string, RankedFix>();
 
   // Helper to add/merge a fix
@@ -62,10 +63,38 @@ export function buildRankedFixes(seo: SeoResult, lh: LighthouseResult | null): R
     "canonical-missing": { title: "Add canonical link tags", impact: "medium", effort: "low", category: "seo" },
     "status-4xx": { title: "Fix 4xx client errors", impact: "high", effort: "medium", category: "seo" },
     "status-5xx": { title: "Fix 5xx server errors", impact: "high", effort: "high", category: "seo" },
+    "og-title-missing": { title: "Add Open Graph title tags", impact: "low", effort: "low", category: "seo" },
+    "og-description-missing": { title: "Add Open Graph description tags", impact: "low", effort: "low", category: "seo" },
+    "og-image-missing": { title: "Add Open Graph image tags", impact: "medium", effort: "low", category: "seo" },
+    "og-url-missing": { title: "Add Open Graph URL tags", impact: "low", effort: "low", category: "seo" },
+    "viewport-missing": { title: "Add viewport meta tag", impact: "high", effort: "low", category: "seo" },
+    "html-lang-missing": { title: "Add lang attribute to <html>", impact: "medium", effort: "low", category: "accessibility" },
+    "structured-data-missing": { title: "Add JSON-LD structured data", impact: "medium", effort: "medium", category: "seo" },
+    "robots-txt-missing": { title: "Add robots.txt", impact: "medium", effort: "low", category: "seo" },
+    "robots-txt-disallow-all": { title: "Fix robots.txt blocking all crawlers", impact: "high", effort: "low", category: "seo" },
+    "sitemap-xml-missing": { title: "Add sitemap.xml", impact: "medium", effort: "low", category: "seo" },
+    "sitemap-xml-invalid": { title: "Fix invalid sitemap.xml", impact: "medium", effort: "low", category: "seo" },
   };
 
   for (const page of seo.pages) {
     for (const issue of page.issues) {
+      const cfg = ruleConfig[issue.rule];
+      if (cfg) {
+        addFix(issue.rule, {
+          title: cfg.title,
+          description: issue.message,
+          impact: cfg.impact,
+          effort: cfg.effort,
+          affectedUrls: [issue.url],
+          category: cfg.category,
+        });
+      }
+    }
+  }
+
+  // Site-level fixes (robots.txt, sitemap.xml)
+  if (siteLevel) {
+    for (const issue of siteLevel.issues) {
       const cfg = ruleConfig[issue.rule];
       if (cfg) {
         addFix(issue.rule, {
@@ -122,6 +151,7 @@ export function buildJsonReport(
   crawlResult: CrawlResult,
   seo: SeoResult,
   lh: LighthouseResult | null,
+  siteLevel?: SiteLevelResult | null,
 ): AuditReport {
   // Status code distribution
   const statusCodeDist: Record<number, number> = {};
@@ -146,8 +176,9 @@ export function buildJsonReport(
       redirectChains,
     },
     seo,
+    ...(siteLevel ? { siteLevel } : {}),
     lighthouse: lh,
-    rankedFixes: buildRankedFixes(seo, lh),
+    rankedFixes: buildRankedFixes(seo, lh, siteLevel),
   };
 }
 
@@ -200,6 +231,18 @@ export function generateHtml(report: AuditReport): string {
       seoIssuesHtml += `<li>${severityBadge(issue.severity)} <strong>${escapeHtml(issue.rule)}</strong>: ${escapeHtml(issue.message)}</li>`;
     }
     seoIssuesHtml += `</ul>`;
+  }
+
+  // Site-level section
+  let siteLevelHtml = "";
+  if (report.siteLevel && report.siteLevel.issues.length > 0) {
+    siteLevelHtml = `<ul>`;
+    for (const issue of report.siteLevel.issues) {
+      siteLevelHtml += `<li>${severityBadge(issue.severity)} <strong>${escapeHtml(issue.rule)}</strong>: ${escapeHtml(issue.message)}</li>`;
+    }
+    siteLevelHtml += `</ul>`;
+  } else {
+    siteLevelHtml = "<p>No site-level issues found.</p>";
   }
 
   // Lighthouse section
@@ -303,6 +346,9 @@ export function generateHtml(report: AuditReport): string {
   <h2>SEO Issues</h2>
   ${seoIssuesHtml || "<p>No SEO issues found.</p>"}
 
+  <h2>Site-Level Checks</h2>
+  ${siteLevelHtml}
+
   <h2>Lighthouse Performance</h2>
   ${lighthouseHtml}
 
@@ -318,8 +364,9 @@ export async function generateReport(
   seo: SeoResult,
   lh: LighthouseResult | null,
   outputDir: string,
+  siteLevel?: SiteLevelResult | null,
 ): Promise<{ jsonPath: string; htmlPath: string; report: AuditReport }> {
-  const report = buildJsonReport(crawlResult, seo, lh);
+  const report = buildJsonReport(crawlResult, seo, lh, siteLevel);
   const html = generateHtml(report);
 
   const jsonPath = path.join(outputDir, "report.json");
