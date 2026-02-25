@@ -18,14 +18,19 @@ import type {
 /** Tiny DOM-in-regex helpers. Good enough for auditing; no dep on JSDOM. */
 
 function getMetaContent(html: string, nameOrProperty: string): string | null {
+  // Four alternations to handle double/single quotes independently so that an
+  // apostrophe inside a double-quoted value (e.g. content="VenTech's stuff")
+  // doesn't truncate the match.
   const re = new RegExp(
-    `<meta\\s[^>]*(?:name|property)=["']${nameOrProperty}["'][^>]*content=["']([^"']*)["']` +
-      `|<meta\\s[^>]*content=["']([^"']*)["'][^>]*(?:name|property)=["']${nameOrProperty}["']`,
+    `<meta\\s[^>]*(?:name|property)="${nameOrProperty}"[^>]*content="([^"]*)"` +
+      `|<meta\\s[^>]*(?:name|property)='${nameOrProperty}'[^>]*content='([^']*)'` +
+      `|<meta\\s[^>]*content="([^"]*)"[^>]*(?:name|property)="${nameOrProperty}"` +
+      `|<meta\\s[^>]*content='([^']*)'[^>]*(?:name|property)='${nameOrProperty}'`,
     "i",
   );
   const m = html.match(re);
   if (!m) return null;
-  return m[1] ?? m[2] ?? null;
+  return m[1] ?? m[2] ?? m[3] ?? m[4] ?? null;
 }
 
 function getTitle(html: string): string | null {
@@ -206,6 +211,73 @@ function checkCanonical(html: string, url: string): SeoIssue[] {
   return issues;
 }
 
+function checkOpenGraph(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+
+  if (!getMetaContent(html, "og:title")) {
+    issues.push({ rule: "og-title-missing", severity: "info", message: "Page is missing an og:title meta tag.", url });
+  }
+  if (!getMetaContent(html, "og:description")) {
+    issues.push({ rule: "og-description-missing", severity: "info", message: "Page is missing an og:description meta tag.", url });
+  }
+  if (!getMetaContent(html, "og:image")) {
+    issues.push({ rule: "og-image-missing", severity: "warning", message: "Page is missing an og:image meta tag. Social shares will lack a preview image.", url });
+  }
+  if (!getMetaContent(html, "og:url")) {
+    issues.push({ rule: "og-url-missing", severity: "info", message: "Page is missing an og:url meta tag.", url });
+  }
+
+  return issues;
+}
+
+function checkViewport(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const hasViewport = /<meta\s[^>]*name=["']viewport["']/i.test(html);
+
+  if (!hasViewport) {
+    issues.push({
+      rule: "viewport-missing",
+      severity: "warning",
+      message: "Page is missing a <meta name=\"viewport\"> tag. Mobile rendering may be broken.",
+      url,
+    });
+  }
+
+  return issues;
+}
+
+function checkLang(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const hasLang = /<html\s[^>]*lang=["'][^"']+["']/i.test(html);
+
+  if (!hasLang) {
+    issues.push({
+      rule: "html-lang-missing",
+      severity: "warning",
+      message: "The <html> element is missing a lang attribute. This hurts accessibility and SEO.",
+      url,
+    });
+  }
+
+  return issues;
+}
+
+function checkStructuredData(html: string, url: string): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const hasJsonLd = /<script\s[^>]*type=["']application\/ld\+json["']/i.test(html);
+
+  if (!hasJsonLd) {
+    issues.push({
+      rule: "structured-data-missing",
+      severity: "info",
+      message: "Page has no JSON-LD structured data. Adding schema markup can improve rich results.",
+      url,
+    });
+  }
+
+  return issues;
+}
+
 function checkStatusCode(statusCode: number, url: string): SeoIssue[] {
   const issues: SeoIssue[] = [];
 
@@ -242,6 +314,10 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
       ...checkH1(html, url),
       ...checkImages(html, url),
       ...checkCanonical(html, url),
+      ...checkOpenGraph(html, url),
+      ...checkViewport(html, url),
+      ...checkLang(html, url),
+      ...checkStructuredData(html, url),
       ...checkStatusCode(node.statusCode, url),
     ];
 
