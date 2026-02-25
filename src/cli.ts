@@ -110,11 +110,12 @@ program
   .option("--skip-lighthouse", "Skip Lighthouse performance audit", false)
   .option("--ci", "CI mode: suppress spinners, output plain text", false)
   .option("--fail-on <severity>", "Exit non-zero if issues at this severity or above exist (error, warning, info)")
+  .option("--pdf", "Also generate a PDF report (requires Playwright)", false)
   .option("-o, --output <dir>", "Output directory", "./site-audit-output")
   .action(
     async (
       url: string,
-      opts: Record<string, string> & { skipLighthouse?: boolean; ci?: boolean; failOn?: string },
+      opts: Record<string, string> & { skipLighthouse?: boolean; ci?: boolean; failOn?: string; pdf?: boolean },
     ) => {
       const outputDir = path.resolve(opts.output);
       await mkdir(outputDir, { recursive: true });
@@ -261,10 +262,30 @@ program
 
         reportSpinner.succeed("Reports generated");
 
+        // Optional PDF export
+        let pdfPath: string | null = null;
+        if (opts.pdf) {
+          try {
+            const { chromium } = await import("playwright");
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle" });
+            pdfPath = path.join(outputDir, "report.pdf");
+            await page.pdf({ path: pdfPath, format: "A4", printBackground: true });
+            await browser.close();
+          } catch (err) {
+            console.warn(chalk.yellow(
+              `  PDF export failed: ${err instanceof Error ? err.message : String(err)}. ` +
+              `Install Playwright (npx playwright install chromium) for PDF support.`,
+            ));
+          }
+        }
+
         console.log("");
         console.log(chalk.bold("Audit Complete"));
         console.log(chalk.green(`  JSON: ${jsonPath}`));
         console.log(chalk.green(`  HTML: ${htmlPath}`));
+        if (pdfPath) console.log(chalk.green(`  PDF:  ${pdfPath}`));
         console.log("");
         console.log(`  Pages crawled:  ${report.crawl.totalPages}`);
         console.log(`  Orphan pages:   ${report.crawl.orphanPages.length}`);
