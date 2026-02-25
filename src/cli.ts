@@ -108,20 +108,37 @@ program
   .option("-s, --lighthouse-samples <number>", "Lighthouse sample size", "5")
   .option("-f, --form-factor <factor>", "Lighthouse form factor: mobile or desktop", "mobile")
   .option("--skip-lighthouse", "Skip Lighthouse performance audit", false)
+  .option("--ci", "CI mode: suppress spinners, output plain text", false)
+  .option("--fail-on <severity>", "Exit non-zero if issues at this severity or above exist (error, warning, info)")
   .option("-o, --output <dir>", "Output directory", "./site-audit-output")
   .action(
     async (
       url: string,
-      opts: Record<string, string> & { skipLighthouse?: boolean },
+      opts: Record<string, string> & { skipLighthouse?: boolean; ci?: boolean; failOn?: string },
     ) => {
       const outputDir = path.resolve(opts.output);
       await mkdir(outputDir, { recursive: true });
+
+      const ciMode = opts.ci ?? false;
+
+      // CI-aware spinner: in CI mode, just log plain text (no TTY animations)
+      function ciSpinner(text: string) {
+        if (ciMode) {
+          console.log(text);
+          return {
+            succeed: (msg: string) => console.log(`OK: ${msg}`),
+            fail: (msg: string) => console.error(`FAIL: ${msg}`),
+            warn: (msg: string) => console.warn(`WARN: ${msg}`),
+          };
+        }
+        return ora(text).start();
+      }
 
       const totalSteps = opts.skipLighthouse ? 7 : 8;
       const step = (n: number) => `Step ${n}/${totalSteps}`;
 
       // Step 1: Crawl
-      const crawlSpinner = ora(`${step(1)}: Crawling website...`).start();
+      const crawlSpinner = ciSpinner(`${step(1)}: Crawling website...`);
       let crawlResult;
       try {
         const crawlOpts: Partial<CrawlOptions> = {
@@ -141,14 +158,14 @@ program
       }
 
       // Step 2: SEO checks
-      const seoSpinner = ora(`${step(2)}: Running SEO checks...`).start();
+      const seoSpinner = ciSpinner(`${step(2)}: Running SEO checks...`);
       const seoResult = checkSeo(crawlResult);
       seoSpinner.succeed(
         `SEO: ${seoResult.summary.error} errors, ${seoResult.summary.warning} warnings, ${seoResult.summary.info} info`,
       );
 
       // Step 3: Site-level checks (robots.txt, sitemap.xml, security headers)
-      const siteSpinner = ora(`${step(3)}: Checking site-level (robots, sitemap, security headers)...`).start();
+      const siteSpinner = ciSpinner(`${step(3)}: Checking site-level (robots, sitemap, security headers)...`);
       let siteLevelResult = null;
       try {
         siteLevelResult = await checkSiteLevel(url);
@@ -163,7 +180,7 @@ program
       }
 
       // Step 4: External link checks
-      const linkSpinner = ora(`${step(4)}: Checking external links...`).start();
+      const linkSpinner = ciSpinner(`${step(4)}: Checking external links...`);
       let externalLinksResult = null;
       try {
         externalLinksResult = await checkExternalLinks(crawlResult);
@@ -177,7 +194,7 @@ program
       }
 
       // Step 5: Extended analysis (accessibility, crawl depth, resources, content, images)
-      const extSpinner = ora(`${step(5)}: Running extended analysis...`).start();
+      const extSpinner = ciSpinner(`${step(5)}: Running extended analysis...`);
       const accessibilityResult = checkAccessibility(crawlResult);
       const crawlAnalysisResult = analyzeCrawl(crawlResult);
       const resourcesResult = analyzeResources(crawlResult);
@@ -198,7 +215,7 @@ program
       let lighthouseResult = null;
       const lhStep = opts.skipLighthouse ? null : step(6);
       if (!opts.skipLighthouse) {
-        const lhSpinner = ora(`${lhStep}: Running Lighthouse audits...`).start();
+        const lhSpinner = ciSpinner(`${lhStep}: Running Lighthouse audits...`);
         try {
           const lhOpts: Partial<LighthouseOptions> = {
             sampleSize: parseInt(opts.lighthouseSamples, 10),
@@ -219,7 +236,7 @@ program
 
       // Final step: Generate report
       const reportStep = opts.skipLighthouse ? step(7) : step(totalSteps);
-      const reportSpinner = ora(`${reportStep}: Generating reports...`).start();
+      const reportSpinner = ciSpinner(`${reportStep}: Generating reports...`);
       try {
         const inputs: ReportInputs = {
           crawlResult,
@@ -252,6 +269,25 @@ program
           console.log(chalk.bold("  Top 5 fixes:"));
           for (const fix of report.rankedFixes.slice(0, 5)) {
             console.log(`    ${fix.rank}. ${fix.title} (${fix.impact} impact, ${fix.effort} effort)`);
+          }
+        }
+
+        // --fail-on: exit non-zero if issues meet or exceed the threshold severity
+        if (opts.failOn) {
+          const severityLevels: Record<string, number> = { error: 3, warning: 2, info: 1 };
+          const threshold = severityLevels[opts.failOn];
+          if (!threshold) {
+            console.error(chalk.red(`Invalid --fail-on value: "${opts.failOn}". Use error, warning, or info.`));
+            process.exit(2);
+          }
+          let failCount = 0;
+          if (threshold <= 3) failCount += report.seo.summary.error;
+          if (threshold <= 2) failCount += report.seo.summary.warning;
+          if (threshold <= 1) failCount += report.seo.summary.info;
+          if (failCount > 0) {
+            console.log("");
+            console.log(chalk.red(`CI gate failed: ${failCount} issue(s) at severity "${opts.failOn}" or above.`));
+            process.exit(1);
           }
         }
       } catch (err) {
