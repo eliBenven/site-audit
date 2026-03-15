@@ -1,5 +1,5 @@
 {
-  "name": "site-audit",
+  "name": "@benven/site-audit",
   "version": "1.0.0",
   "description": "Comprehensive website auditing CLI with design scoring, SEO checks, Lighthouse CWV, accessibility, and AI-powered analysis",
   "license": "MIT",

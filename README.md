@@ -23,13 +23,13 @@ Comprehensive website auditing CLI. Crawls your site, runs 30+ SEO checks, evalu
 ## Install
 
 ```bash
-npx site-audit audit https://example.com
+npx @benven/site-audit audit https://example.com
 ```
 
 Or install globally:
 
 ```bash
-npm install -g site-audit
+npm install -g @benven/site-audit
 ```
 
 Or from source:
