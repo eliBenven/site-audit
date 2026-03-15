@@ -95,8 +95,8 @@ export const SPACING = {
    */
   tolerance: 2,
 
-  /** Maximum distinct spacing values. A tight system uses 8-12. */
-  maxDistinctValues: 12,
+  /** Maximum distinct spacing values. A tight system uses 10-16. */
+  maxDistinctValues: 16,
 
   /**
    * Percentage of all measured spacing values that must be on the

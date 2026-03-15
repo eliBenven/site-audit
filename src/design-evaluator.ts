@@ -72,6 +72,7 @@ interface ExtractedStyles {
   cls: number;
   fontDisplay: string[];
   transitionDurations: number[];
+  contrastPairs?: Array<{ textColor: string; bgColor: string; text: string }>;
 }
 
 // ── Style Extraction (runs inside Playwright) ────────────────────────────────
@@ -101,6 +102,7 @@ const EXTRACT_STYLES_SCRIPT = `(() => {
     lineCharCounts: [],
     fontDisplay: [],
     transitionDurations: [],
+    contrastPairs: [],
   };
 
   const allElements = document.querySelectorAll('*');
@@ -212,30 +214,79 @@ const EXTRACT_STYLES_SCRIPT = `(() => {
     });
   }
 
-  // Images
+  // Images — account for lazy loading (naturalWidth=0 for offscreen images is NOT broken)
   for (const img of document.querySelectorAll('img')) {
+    const isLazy = img.loading === 'lazy' || img.getAttribute('loading') === 'lazy';
+    const rect = img.getBoundingClientRect();
+    const isOffscreen = rect.bottom < 0 || rect.top > window.innerHeight * 2;
+    const nw = img.naturalWidth || 0;
+    const nh = img.naturalHeight || 0;
+    // An image is only "broken" if it's NOT lazy/offscreen and has no natural dimensions
+    const isBroken = img.complete && nw === 0 && !isLazy && !isOffscreen && img.src !== '';
+    const style = getComputedStyle(img);
+    const hasDims = (img.hasAttribute('width') && img.hasAttribute('height')) ||
+                    style.aspectRatio !== 'auto' ||
+                    (parseFloat(style.width) > 0 && parseFloat(style.height) > 0);
     result.images.push({
       src: img.src || img.getAttribute('src') || '',
-      hasDimensions: img.hasAttribute('width') && img.hasAttribute('height') ||
-                     getComputedStyle(img).aspectRatio !== 'auto',
+      hasDimensions: hasDims,
       hasAlt: img.hasAttribute('alt'),
-      naturalWidth: img.naturalWidth || 0,
-      naturalHeight: img.naturalHeight || 0,
-      aspectRatio: img.naturalWidth && img.naturalHeight
-        ? Math.round((img.naturalWidth / img.naturalHeight) * 100) / 100 : 0,
+      naturalWidth: isBroken ? 0 : (nw || 1), // Mark non-broken lazy images as having dimensions
+      naturalHeight: isBroken ? 0 : (nh || 1),
+      aspectRatio: nw && nh ? Math.round((nw / nh) * 100) / 100 : 0,
     });
   }
 
-  // Approximate line character count from paragraphs
-  for (const p of document.querySelectorAll('p, li, td')) {
+  // Line length — only measure body text paragraphs inside main content areas.
+  // Skip nav, footer, cards, buttons, and short elements.
+  const mainContent = document.querySelector('main, [role="main"], article, .content') || document.body;
+  for (const p of mainContent.querySelectorAll('p')) {
     const style = getComputedStyle(p);
+    if (style.display === 'none') continue;
     const width = p.clientWidth;
     const fontSize = parseFloat(style.fontSize);
-    if (width > 0 && fontSize > 0) {
-      // Average character width ≈ 0.5 * fontSize for proportional fonts
+    const text = p.textContent || '';
+    // Only measure substantive paragraphs (>50 chars), not short labels/captions
+    if (width > 0 && fontSize > 0 && text.length > 50) {
       const charsPerLine = Math.round(width / (fontSize * 0.5));
       if (charsPerLine > 10) result.lineCharCounts.push(charsPerLine);
     }
+  }
+
+  // Contrast pairs — extract actual text color + resolved background color pairs
+  result.contrastPairs = [];
+  const textElements = mainContent.querySelectorAll('p, h1, h2, h3, h4, h5, h6, a, span, li, td, th, label, button');
+  for (const el of [...textElements].slice(0, 100)) {
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') continue;
+    const text = (el.textContent || '').trim();
+    if (!text || text.length < 2) continue;
+
+    const textColor = style.color;
+    // Walk up to find the nearest opaque background
+    let bgColor = 'rgb(255, 255, 255)';
+    let current = el;
+    while (current && current !== document.documentElement) {
+      const bg = getComputedStyle(current).backgroundColor;
+      if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+        // Only use if opacity > 0.5 (skip near-transparent overlays)
+        const match = bg.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?/);
+        if (match) {
+          const alpha = match[4] !== undefined ? parseFloat(match[4]) : 1;
+          if (alpha > 0.5) {
+            bgColor = bg;
+            break;
+          }
+        }
+      }
+      current = current.parentElement;
+    }
+
+    result.contrastPairs.push({
+      textColor,
+      bgColor,
+      text: text.slice(0, 30),
+    });
   }
 
   // Font display
@@ -448,6 +499,7 @@ function aggregateStyles(pages: ExtractedStyles[]): ExtractedStyles {
     cls: 0,
     fontDisplay: [],
     transitionDurations: [],
+    contrastPairs: [],
   };
 
   const fontFamilySet = new Set<string>();
@@ -474,6 +526,7 @@ function aggregateStyles(pages: ExtractedStyles[]): ExtractedStyles {
     agg.headingLineHeights.push(...p.headingLineHeights);
     agg.lineCharCounts.push(...p.lineCharCounts);
     agg.transitionDurations.push(...p.transitionDurations);
+    if (p.contrastPairs) agg.contrastPairs!.push(...p.contrastPairs);
     if (p.hasHorizontalOverflow) agg.hasHorizontalOverflow = true;
     if (!p.hasFavicon) agg.hasFavicon = false;
     agg.cls = Math.max(agg.cls, p.cls);
@@ -503,10 +556,29 @@ function aggregateStyles(pages: ExtractedStyles[]): ExtractedStyles {
 function checkTypography(styles: ExtractedStyles): DesignCheck[] {
   const checks: DesignCheck[] = [];
 
-  // Font families
-  // Filter out generic families
-  const generics = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-sans-serif", "ui-serif", "ui-monospace", "ui-rounded", "emoji", "math", "fangsong"]);
-  const customFonts = styles.fontFamilies.filter((f) => !generics.has(f.toLowerCase()));
+  // Font families — filter out generic CSS families, system UI stacks, and emoji fonts.
+  // Only count actual loaded web fonts.
+  const genericOrSystem = new Set([
+    "serif", "sans-serif", "monospace", "cursive", "fantasy",
+    "system-ui", "ui-sans-serif", "ui-serif", "ui-monospace", "ui-rounded",
+    "emoji", "math", "fangsong",
+    // System font stacks
+    "apple color emoji", "segoe ui emoji", "segoe ui symbol", "noto color emoji",
+    "segoe ui", "roboto", "helvetica neue", "arial", "noto sans",
+    "liberation sans", "helvetica", "apple system", "blinkmacsystemfont",
+    // Common fallbacks
+    "times new roman", "times", "georgia", "courier new", "courier",
+    "lucida console", "monaco",
+  ]);
+  const customFonts = styles.fontFamilies.filter((f) => {
+    const lower = f.toLowerCase();
+    if (genericOrSystem.has(lower)) return false;
+    // Skip Next.js fallback font names (e.g., __Karla_Fallback_524d84)
+    if (lower.includes("fallback")) return false;
+    // Skip single-word system fonts that slipped through
+    if (lower.startsWith("__") && lower.includes("_fallback")) return false;
+    return true;
+  });
   checks.push({
     id: "type-font-families",
     label: "Font family count",
@@ -657,38 +729,37 @@ function checkColor(styles: ExtractedStyles): DesignCheck[] {
     deviations: brandColors.length > COLOR.maxBrandColors ? ["Too many brand colors — a strong brand uses 2-3 colors max"] : [],
   });
 
-  // Contrast check (sample text/bg pairs)
-  const textColors = uniqueColors(styles.colors).slice(0, 10);
-  const bgColorsUnique = uniqueColors(styles.bgColors).slice(0, 10);
-  let lowContrastPairs = 0;
-  let totalPairs = 0;
+  // Contrast check — use actual text/background pairs extracted from the page,
+  // NOT a pairwise cross of all colors (which creates phantom combinations).
+  // The contrastPairs are collected during style extraction.
+  const contrastPairs = styles.contrastPairs ?? [];
+  let lowContrastCount = 0;
   const lowContrastExamples: string[] = [];
 
-  for (const text of textColors) {
-    const textRGB = parseRGB(`rgb(${parseInt(text.slice(1, 3), 16)},${parseInt(text.slice(3, 5), 16)},${parseInt(text.slice(5, 7), 16)})`);
-    if (!textRGB) continue;
-    for (const bg of bgColorsUnique) {
-      const bgRGB = parseRGB(`rgb(${parseInt(bg.slice(1, 3), 16)},${parseInt(bg.slice(3, 5), 16)},${parseInt(bg.slice(5, 7), 16)})`);
-      if (!bgRGB) continue;
-      totalPairs++;
-      const ratio = contrastRatio(textRGB, bgRGB);
-      if (ratio < COLOR.contrastAANormal && ratio > 1.2) {
-        lowContrastPairs++;
-        if (lowContrastExamples.length < 3) {
-          lowContrastExamples.push(`${text} on ${bg} = ${ratio.toFixed(1)}:1`);
-        }
+  for (const pair of contrastPairs) {
+    const textRGB = parseRGB(pair.textColor);
+    const bgRGB = parseRGB(pair.bgColor);
+    if (!textRGB || !bgRGB) continue;
+    const ratio = contrastRatio(textRGB, bgRGB);
+    if (ratio < COLOR.contrastAANormal && ratio > 1.2) {
+      lowContrastCount++;
+      if (lowContrastExamples.length < 3) {
+        const textHex = colorToHex(...textRGB);
+        const bgHex = colorToHex(...bgRGB);
+        lowContrastExamples.push(`${textHex} on ${bgHex} = ${ratio.toFixed(1)}:1 — "${pair.text}"`);
       }
     }
   }
 
-  const contrastScore = totalPairs > 0 ? Math.round(100 * (1 - lowContrastPairs / totalPairs)) : 100;
+  const contrastScore = contrastPairs.length > 0
+    ? Math.round(100 * (1 - lowContrastCount / contrastPairs.length)) : 100;
   checks.push({
     id: "color-contrast",
     label: "Text contrast ratios",
     dimension: "color",
     score: contrastScore,
     standard: `WCAG AA minimum (${COLOR.contrastAANormal}:1), AAA preferred (${COLOR.contrastAAANormal}:1)`,
-    actual: `${lowContrastPairs}/${totalPairs} color pairs below AA threshold`,
+    actual: `${lowContrastCount}/${contrastPairs.length} actual text/bg pairs below AA threshold`,
     deviations: lowContrastExamples,
   });
 
