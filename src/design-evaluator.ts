@@ -472,6 +472,33 @@ async function extractFromPage(page: Page, url: string): Promise<ExtractedStyles
   } as ExtractedStyles;
 }
 
+/**
+ * Normalize a CSS shadow string so that near-duplicates collapse.
+ * - Collapses whitespace
+ * - Rounds rgba/hsla numeric values (e.g. 0.10 -> 0.1)
+ * - Lowercases
+ */
+function normalizeShadow(shadow: string): string {
+  return shadow
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/rgba?\(([^)]+)\)/g, (_, inner: string) => {
+      const parts = inner.split(",").map((p) => {
+        const n = parseFloat(p.trim());
+        return isNaN(n) ? p.trim() : String(Math.round(n * 1000) / 1000);
+      });
+      return `rgba(${parts.join(", ")})`;
+    })
+    .replace(/hsla?\(([^)]+)\)/g, (_, inner: string) => {
+      const parts = inner.split(",").map((p) => {
+        const n = parseFloat(p.trim());
+        return isNaN(n) ? p.trim() : String(Math.round(n * 1000) / 1000);
+      });
+      return `hsla(${parts.join(", ")})`;
+    });
+}
+
 function aggregateStyles(pages: ExtractedStyles[]): ExtractedStyles {
   const agg: ExtractedStyles = {
     url: "aggregate",
@@ -518,7 +545,7 @@ function aggregateStyles(pages: ExtractedStyles[]): ExtractedStyles {
     agg.borderColors.push(...p.borderColors);
     agg.spacingValues.push(...p.spacingValues);
     for (const r of p.borderRadii) borderRadiiSet.add(r);
-    for (const s of p.shadows) shadowSet.add(s);
+    for (const s of p.shadows) shadowSet.add(normalizeShadow(s));
     for (const o of p.opacities) opacitySet.add(o);
     for (const z of p.zIndices) zIndexSet.add(z);
     agg.interactiveElements.push(...p.interactiveElements);
@@ -867,7 +894,10 @@ function checkLayout(styles: ExtractedStyles): DesignCheck[] {
 
 function checkInteraction(styles: ExtractedStyles): DesignCheck[] {
   const checks: DesignCheck[] = [];
-  const interactive = styles.interactiveElements;
+  // Filter out invisible/tracking-pixel elements (1x1px or smaller)
+  const interactive = styles.interactiveElements.filter(
+    (e) => e.width >= 2 && e.height >= 2,
+  );
 
   if (interactive.length === 0) return checks;
 

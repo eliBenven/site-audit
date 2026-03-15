@@ -496,10 +496,33 @@ program
       }
     }
 
+    // Step 4 (optional): AI visual annotations with exact locations
+    let annotationResults = null;
+    if (useAi && designResult.screenshots.length > 0) {
+      const annotSpinner = jsonMode ? null : ora("Step 4: Generating visual annotations...").start();
+      try {
+        const { annotateDesignIssues, generateAnnotationHtml } = await import("./design-annotator.js");
+        annotationResults = await annotateDesignIssues(designResult.screenshots, designResult.score.allChecks);
+        annotSpinner?.succeed(`Annotated ${annotationResults.length} pages`);
+
+        // Save annotation HTML
+        if (!jsonMode) {
+          const annotHtml = generateAnnotationHtml(annotationResults);
+          const { writeFile: writeAnnot } = await import("node:fs/promises");
+          const annotPath = path.join(outputDir, "design-annotations.html");
+          await writeAnnot(annotPath, annotHtml, "utf-8");
+          console.log(chalk.green(`  Annotations: ${annotPath}`));
+        }
+      } catch (err) {
+        annotSpinner?.warn(`Annotation failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     // Output
     const result = {
       ...designResult.score,
       ai: aiVerdict,
+      annotations: annotationResults,
     };
 
     if (jsonMode) {

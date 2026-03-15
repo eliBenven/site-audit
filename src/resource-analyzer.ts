@@ -24,6 +24,7 @@ interface PageResources {
 const FRAMEWORK_POLYFILL_PATTERNS = [
   /\/_next\/static\/chunks\/polyfills/,   // Next.js
   /\/_next\/static\/chunks\/webpack/,     // Next.js webpack runtime
+  /\/_next\/static\/chunks\/[a-f0-9]{8,}\.js/,  // Next.js hashed chunks
   /__next/,                               // Next.js internals
   /nuxt/,                                 // Nuxt.js
   /gatsby-chunk/,                         // Gatsby

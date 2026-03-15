@@ -1,0 +1,19 @@
+# Example: Add this to YOUR repo's .github/workflows/site-audit.yml
+name: Site Audit
+on:
+  pull_request:
+    branches: [main]
+  # Or run on deploy:
+  # deployment_status:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: eliBenven/site-audit@main
+        with:
+          url: 'https://your-preview-url.vercel.app'
+          design-threshold: '80'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

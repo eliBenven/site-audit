@@ -89,9 +89,18 @@ export async function checkExternalLinks(
   const retries = options.retries ?? 1;
   const issues: SeoIssue[] = [];
 
+  // Non-HTML extensions to skip when extracting outgoing links
+  const NON_HTML_EXTENSIONS = /\.(txt|xml|json|pdf|csv|rss|atom|ico|svg|png|jpg|jpeg|gif|webp|woff2?|ttf|eot)$/i;
+
   // Collect all unique external links with source pages
   const linkSources = new Map<string, string[]>();
   for (const [url, node] of crawlResult.pages) {
+    // Skip non-HTML pages (e.g. llms.txt, llms-full.txt) — their content
+    // isn't HTML so cheerio would extract garbage "links" from raw text.
+    try {
+      const pathname = new URL(url).pathname;
+      if (NON_HTML_EXTENSIONS.test(pathname)) continue;
+    } catch { /* proceed if URL is unparseable */ }
     for (const ext of extractExternalLinks(node.html, url)) {
       const sources = linkSources.get(ext) ?? [];
       sources.push(url);
