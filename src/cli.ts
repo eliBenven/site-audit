@@ -425,6 +425,143 @@ program
     }
   });
 
+// ── design ───────────────────────────────────────────────────────────────────
+
+program
+  .command("design <url>")
+  .description("Evaluate a website's visual design against the universal perfection standard")
+  .option("-d, --depth <number>", "Maximum crawl depth", "3")
+  .option("-p, --max-pages <number>", "Maximum pages to crawl (0 = all)", "0")
+  .option("-m, --mode <mode>", "Crawl mode: rendered or html", "rendered")
+  .option("-c, --concurrency <number>", "Concurrent fetches", "5")
+  .option("--ai", "Include AI visual evaluation (requires ANTHROPIC_API_KEY)", false)
+  .option("--json", "Output JSON to stdout", false)
+  .option("-o, --output <dir>", "Output directory", "./site-audit-output")
+  .action(async (url: string, opts: Record<string, unknown>) => {
+    const outputDir = path.resolve(opts.output as string);
+    const jsonMode = opts.json as boolean;
+    const useAi = (opts.ai as boolean) && !!process.env.ANTHROPIC_API_KEY;
+
+    if (!jsonMode) await mkdir(outputDir, { recursive: true });
+
+    // Step 1: Crawl
+    const crawlSpinner = jsonMode ? null : ora("Step 1: Crawling site...").start();
+    let crawlResult;
+    try {
+      const maxPages = parseInt(opts.maxPages as string, 10);
+      crawlResult = await crawl(url, {
+        maxDepth: parseInt(opts.depth as string, 10),
+        maxPages: maxPages === 0 ? 200 : maxPages,
+        mode: opts.mode as "rendered" | "html",
+        concurrency: parseInt(opts.concurrency as string, 10),
+      });
+      crawlSpinner?.succeed(`Crawled ${crawlResult.pages.size} pages`);
+    } catch (err) {
+      crawlSpinner?.fail("Crawl failed");
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+
+    // Step 2: Design evaluation (needs Playwright for computed styles)
+    const designSpinner = jsonMode ? null : ora(`Step 2: Evaluating design across ${crawlResult.pages.size} pages...`).start();
+    let designResult;
+    try {
+      const { evaluateDesign } = await import("./design-evaluator.js");
+      designResult = await evaluateDesign(
+        crawlResult,
+        { captureScreenshots: useAi },
+        (progress) => {
+          if (designSpinner && "text" in designSpinner) {
+            (designSpinner as { text: string }).text = `Step 2: Evaluating page ${progress.evaluated}/${progress.total}...`;
+          }
+        },
+      );
+      designSpinner?.succeed(`Design evaluation complete: ${designResult.score.overall}/100`);
+    } catch (err) {
+      designSpinner?.fail("Design evaluation failed");
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+
+    // Step 3 (optional): AI visual evaluation
+    let aiVerdict = null;
+    if (useAi && designResult.screenshots.length > 0) {
+      const aiSpinner = jsonMode ? null : ora("Step 3: AI visual evaluation...").start();
+      try {
+        const { evaluateDesignWithAi } = await import("./design-ai.js");
+        aiVerdict = await evaluateDesignWithAi(designResult.screenshots, designResult.score);
+        aiSpinner?.succeed(`AI verdict: ${aiVerdict.grade} — ${aiVerdict.headline}`);
+      } catch (err) {
+        aiSpinner?.warn(`AI evaluation failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // Output
+    const result = {
+      ...designResult.score,
+      ai: aiVerdict,
+    };
+
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    // Save JSON
+    const { writeFile: writeFs } = await import("node:fs/promises");
+    const jsonPath = path.join(outputDir, "design-score.json");
+    await writeFs(jsonPath, JSON.stringify(result, null, 2), "utf-8");
+
+    // Print results
+    console.log("");
+    console.log(chalk.bold("Design Evaluation Results"));
+    console.log(chalk.green(`  JSON: ${jsonPath}`));
+    console.log("");
+
+    // Overall score with color
+    const scoreColor = result.overall >= 95 ? chalk.green : result.overall >= 75 ? chalk.yellow : chalk.red;
+    const verdict = result.perfect ? "PERFECT" : result.acceptable ? "ACCEPTABLE" : "NEEDS WORK";
+    console.log(`  Overall: ${scoreColor(`${result.overall}/100`)} ${chalk.bold(verdict)}`);
+    console.log("");
+
+    // Dimension breakdown
+    console.log(chalk.bold("  Dimensions:"));
+    for (const dim of result.dimensions) {
+      const dimColor = dim.score >= 90 ? chalk.green : dim.score >= 70 ? chalk.yellow : chalk.red;
+      const bar = "█".repeat(Math.round(dim.score / 5)) + "░".repeat(20 - Math.round(dim.score / 5));
+      console.log(`    ${dim.dimension.padEnd(14)} ${dimColor(bar)} ${dim.score}/100`);
+    }
+
+    // Top issues
+    if (result.topIssues.length > 0) {
+      console.log("");
+      console.log(chalk.bold("  Top Issues:"));
+      for (const issue of result.topIssues.slice(0, 8)) {
+        const issueColor = issue.score < 50 ? chalk.red : chalk.yellow;
+        console.log(`    ${issueColor("●")} ${issue.label} — ${issue.actual}`);
+        for (const dev of issue.deviations.slice(0, 1)) {
+          console.log(`      ${chalk.dim(dev)}`);
+        }
+      }
+    }
+
+    // AI verdict
+    if (aiVerdict) {
+      console.log("");
+      console.log(chalk.bold(`  AI Grade: ${aiVerdict.grade}`));
+      console.log(`    ${aiVerdict.headline}`);
+      if (aiVerdict.problems.length > 0) {
+        console.log(chalk.bold("    Problems:"));
+        for (const p of aiVerdict.problems.slice(0, 5)) {
+          console.log(`      ${chalk.red("●")} ${p}`);
+        }
+      }
+      console.log(`    Shippable: ${aiVerdict.shippable ? chalk.green("YES") : chalk.red("NO")}`);
+    }
+
+    console.log("");
+  });
+
 // ── report ───────────────────────────────────────────────────────────────────
 
 program
