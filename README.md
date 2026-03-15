@@ -2,6 +2,10 @@
 
 Comprehensive website auditing CLI. Crawls your site, runs 30+ SEO checks, evaluates design against a universal perfection standard, measures Core Web Vitals, and generates prioritized HTML reports with ranked fixes.
 
+![HTML Report](assets/report-screenshot.png)
+
+![Design Score](assets/design-score-terminal.svg)
+
 ## Features
 
 **SEO** — 20+ checks: titles, meta descriptions, headings, images, canonical tags, Open Graph, structured data, status codes, redirects, mixed content, thin content, duplicate detection
@@ -19,10 +23,21 @@ Comprehensive website auditing CLI. Crawls your site, runs 30+ SEO checks, evalu
 ## Install
 
 ```bash
+npx site-audit audit https://example.com
+```
+
+Or install globally:
+
+```bash
+npm install -g site-audit
+```
+
+Or from source:
+
+```bash
 git clone https://github.com/eliBenven/site-audit.git
 cd site-audit
-npm install
-npm run build
+npm install && npm run build
 ```
 
 Optional: install Playwright for rendered crawling and design evaluation:
@@ -34,17 +49,17 @@ npx playwright install chromium
 
 ### Full audit
 ```bash
-node dist/cli.js audit https://example.com
+site-audit audit https://example.com
 ```
 
 ### Design evaluation
 ```bash
-node dist/cli.js design https://example.com
+site-audit design https://example.com
 ```
 
 ### Quick crawl
 ```bash
-node dist/cli.js crawl https://example.com
+site-audit crawl https://example.com
 ```
 
 ### Key flags
@@ -69,13 +84,13 @@ node dist/cli.js crawl https://example.com
 
 ### CI integration
 ```bash
-node dist/cli.js audit https://example.com --ci --fail-on warning
+site-audit audit https://example.com --ci --fail-on warning
 ```
 
 ### Compare audits over time
 ```bash
-node dist/cli.js history
-node dist/cli.js diff report-before.json report-after.json
+site-audit history
+site-audit diff report-before.json report-after.json
 ```
 
 ## Design Evaluation
@@ -93,12 +108,31 @@ The `design` command evaluates every page against a universal design perfection 
 
 Score of 95+ = perfect. Below 75 = needs work.
 
+## How it compares
+
+| Feature | site-audit | Lighthouse | Ahrefs / SEMrush | Screaming Frog |
+|---|---|---|---|---|
+| SEO checks | 20+ rules | Basic | Comprehensive | Comprehensive |
+| Design scoring | **Yes (0-100)** | No | No | No |
+| Design system analysis | **Typography, color, spacing scales** | No | No | No |
+| AI-powered insights | **Claude API** | No | AI content tools | No |
+| Accessibility | HTML-based | Full audit | Limited | Limited |
+| Performance (CWV) | Lighthouse integration | Native | Partial | No |
+| Ranked fix list | **Impact x Effort** | Opportunities | Priority lists | No |
+| Security headers | Yes | No | No | No |
+| Self-hosted | **Yes, fully local** | Yes | No (SaaS) | Desktop app |
+| CI/CD integration | `--fail-on`, `--json` | CI mode | API | No |
+| Price | **Free / open source** | Free | $99-449/mo | Free / $259/yr |
+| Design perfection standard | **Universal, opinionated** | No | No | No |
+
+**The key difference**: site-audit is the only tool that defines a measurable success state for design. Other tools tell you what's broken — site-audit tells you when you're done.
+
 ## AI Analysis
 
 Set your Anthropic API key and pass `--ai`:
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... node dist/cli.js audit https://example.com --ai
+ANTHROPIC_API_KEY=sk-ant-... site-audit audit https://example.com --ai
 ```
 
 Generates an executive summary, per-page content quality analysis, and step-by-step fix instructions.

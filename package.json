@@ -1,20 +1,48 @@
 {
   "name": "site-audit",
   "version": "1.0.0",
-  "description": "Comprehensive website auditing CLI: crawl, SEO checks, Lighthouse CWV, and HTML reports",
+  "description": "Comprehensive website auditing CLI with design scoring, SEO checks, Lighthouse CWV, accessibility, and AI-powered analysis",
   "license": "MIT",
-  "author": "Eli Benveniste",
+  "author": "Eli Benveniste <eli@ventechdigital.com>",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
     "site-audit": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eliBenven/site-audit.git"
+  },
+  "homepage": "https://github.com/eliBenven/site-audit",
+  "bugs": {
+    "url": "https://github.com/eliBenven/site-audit/issues"
+  },
+  "keywords": [
+    "seo",
+    "audit",
+    "website-audit",
+    "lighthouse",
+    "web-performance",
+    "accessibility",
+    "design-system",
+    "core-web-vitals",
+    "crawler",
+    "playwright",
+    "cli"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

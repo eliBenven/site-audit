@@ -1,0 +1,30 @@
+<svg width="680" height="420" xmlns="http://www.w3.org/2000/svg">
+  <rect width="680" height="420" rx="10" fill="#1e1e1e"/>
+  <!-- Title bar -->
+  <rect width="680" height="32" rx="10" fill="#2d2d2d"/>
+  <circle cx="20" cy="16" r="6" fill="#ff5f57"/>
+  <circle cx="40" cy="16" r="6" fill="#febc2e"/>
+  <circle cx="60" cy="16" r="6" fill="#28c840"/>
+  <text x="340" y="20" text-anchor="middle" font-family="monospace" font-size="12" fill="#888">site-audit design</text>
+  <!-- Content -->
+  <text x="20" y="60" font-family="monospace" font-size="13" fill="#6EE7B7">$ site-audit design https://ventechdigital.com</text>
+  <text x="20" y="85" font-family="monospace" font-size="13" fill="#888">✔ Crawled 30 pages</text>
+  <text x="20" y="105" font-family="monospace" font-size="13" fill="#888">✔ Design evaluation complete</text>
+  <text x="20" y="135" font-family="monospace" font-size="14" fill="#fff" font-weight="bold">Design Evaluation Results</text>
+  <text x="20" y="160" font-family="monospace" font-size="13" fill="#fff">  Overall: </text>
+  <text x="120" y="160" font-family="monospace" font-size="14" fill="#FBBF24" font-weight="bold">89/100 ACCEPTABLE</text>
+  <!-- Dimension bars -->
+  <text x="20" y="190" font-family="monospace" font-size="12" fill="#fff" font-weight="bold">  Dimensions:</text>
+  <text x="20" y="210" font-family="monospace" font-size="12" fill="#ccc">    typography     </text><text x="170" y="210" font-family="monospace" font-size="12" fill="#6EE7B7">███████████████████░</text><text x="380" y="210" font-family="monospace" font-size="12" fill="#6EE7B7"> 93/100</text>
+  <text x="20" y="228" font-family="monospace" font-size="12" fill="#ccc">    color          </text><text x="170" y="228" font-family="monospace" font-size="12" fill="#6EE7B7">███████████████████░</text><text x="380" y="228" font-family="monospace" font-size="12" fill="#6EE7B7"> 95/100</text>
+  <text x="20" y="246" font-family="monospace" font-size="12" fill="#ccc">    spacing        </text><text x="170" y="246" font-family="monospace" font-size="12" fill="#FBBF24">██████████████░░░░░░</text><text x="380" y="246" font-family="monospace" font-size="12" fill="#FBBF24"> 70/100</text>
+  <text x="20" y="264" font-family="monospace" font-size="12" fill="#ccc">    layout         </text><text x="170" y="264" font-family="monospace" font-size="12" fill="#6EE7B7">████████████████████</text><text x="380" y="264" font-family="monospace" font-size="12" fill="#6EE7B7">100/100</text>
+  <text x="20" y="282" font-family="monospace" font-size="12" fill="#ccc">    interaction    </text><text x="170" y="282" font-family="monospace" font-size="12" fill="#6EE7B7">██████████████████░░</text><text x="380" y="282" font-family="monospace" font-size="12" fill="#6EE7B7"> 91/100</text>
+  <text x="20" y="300" font-family="monospace" font-size="12" fill="#ccc">    performance    </text><text x="170" y="300" font-family="monospace" font-size="12" fill="#6EE7B7">███████████████████░</text><text x="380" y="300" font-family="monospace" font-size="12" fill="#6EE7B7"> 93/100</text>
+  <text x="20" y="318" font-family="monospace" font-size="12" fill="#ccc">    consistency    </text><text x="170" y="318" font-family="monospace" font-size="12" fill="#FBBF24">██████████████░░░░░░</text><text x="380" y="318" font-family="monospace" font-size="12" fill="#FBBF24"> 72/100</text>
+  <text x="20" y="336" font-family="monospace" font-size="12" fill="#ccc">    polish         </text><text x="170" y="336" font-family="monospace" font-size="12" fill="#6EE7B7">████████████████████</text><text x="380" y="336" font-family="monospace" font-size="12" fill="#6EE7B7">100/100</text>
+  <!-- Top issues -->
+  <text x="20" y="366" font-family="monospace" font-size="12" fill="#fff" font-weight="bold">  Top Issues:</text>
+  <text x="20" y="386" font-family="monospace" font-size="11" fill="#F87171">    ● Box shadow consistency — 9 distinct shadows</text>
+  <text x="20" y="402" font-family="monospace" font-size="11" fill="#F87171">    ● Distinct spacing values — 25 distinct values</text>
+</svg>
