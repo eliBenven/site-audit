@@ -1,6 +1,6 @@
 {
   "name": "@benven/site-audit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Comprehensive website auditing CLI with design scoring, SEO checks, Lighthouse CWV, accessibility, and AI-powered analysis",
   "license": "MIT",
   "author": "Eli Benveniste <eli@ventechdigital.com>",

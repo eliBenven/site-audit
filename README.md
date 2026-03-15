@@ -137,6 +137,61 @@ ANTHROPIC_API_KEY=sk-ant-... site-audit audit https://example.com --ai
 
 Generates an executive summary, per-page content quality analysis, and step-by-step fix instructions.
 
+## Local Dashboard
+
+Launch an interactive dashboard in your browser:
+
+```bash
+site-audit serve https://example.com
+```
+
+Opens a dark-themed dashboard with animated score gauges, dimension breakdowns, and an interactive fix table.
+
+## Score Badges
+
+Generate embeddable SVG badges for your README:
+
+```bash
+site-audit badge https://example.com -o ./assets
+```
+
+Then add to your README:
+```markdown
+![Design Score](assets/design-badge.svg) ![SEO](assets/seo-badge.svg)
+```
+
+## GitHub Action
+
+Run site-audit on every PR automatically:
+
+```yaml
+# .github/workflows/site-audit.yml
+name: Site Audit
+on: [pull_request]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: eliBenven/site-audit@main
+        with:
+          url: 'https://your-preview-url.vercel.app'
+          design-threshold: '80'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Comments on your PR with the design score, SEO summary, and top fixes. Fails the check if the design score drops below your threshold.
+
+## AI Visual Annotations
+
+With `--ai`, the design command generates annotated reports showing exact locations of issues:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... site-audit design https://example.com --ai
+```
+
+Produces `design-annotations.html` with screenshots side-by-side with AI-identified issues, exact locations, severity, and fix instructions.
+
 ## Claude Code Skill
 
 This tool is also available as a Claude Code slash command:
