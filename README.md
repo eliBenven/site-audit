@@ -1,107 +1,131 @@
 # site-audit
 
-A comprehensive website auditing CLI tool. Crawls your site with Playwright, runs SEO checks, measures Core Web Vitals with Lighthouse, and generates a prioritised HTML report.
+Comprehensive website auditing CLI. Crawls your site, runs 30+ SEO checks, evaluates design against a universal perfection standard, measures Core Web Vitals, and generates prioritized HTML reports with ranked fixes.
 
-## What it does
+## Features
 
-- **Crawls** your website using Playwright (rendered JS) or plain HTTP, building a full internal link graph
-- **Detects SEO issues**: missing titles, meta descriptions, H1 tags, broken images, missing alt text, canonical tags, HTTP errors
-- **Measures performance**: runs Lighthouse on sampled pages, extracts LCP, INP, CLS, and optimisation opportunities
-- **Generates reports**: a self-contained HTML report with a ranked fix list (Impact x Effort scoring), plus raw JSON export
+**SEO** — 20+ checks: titles, meta descriptions, headings, images, canonical tags, Open Graph, structured data, status codes, redirects, mixed content, thin content, duplicate detection
 
-## Quickstart
+**Design Evaluation** (beta) — Scores visual design against an opinionated, non-configurable perfection standard across 8 dimensions: typography, color, spacing, layout, interaction, performance, consistency, polish
+
+**Accessibility** — Form labels, ARIA landmarks, skip navigation, tabindex, heading hierarchy, lang attribute
+
+**Performance** — Lighthouse CWV (LCP, INP, CLS), render-blocking scripts, image optimization, TTFB tracking
+
+**Security** — HSTS, CSP, X-Frame-Options, X-Content-Type-Options header checks
+
+**AI Analysis** — Claude-powered executive summary, per-page insights, and detailed fix instructions (requires `ANTHROPIC_API_KEY`)
+
+## Install
 
 ```bash
-npx site-audit audit https://example.com --skip-lighthouse
-```
-
-See [QUICKSTART.md](./QUICKSTART.md) for a full walkthrough.
-
-## Installation
-
-```bash
-# Clone and install
-git clone <repo-url> && cd site-audit
+git clone https://github.com/eliBenven/site-audit.git
+cd site-audit
 npm install
 npm run build
-
-# Or run directly with npx after building
-npx site-audit audit https://example.com
 ```
 
-### Prerequisites
+Optional: install Playwright for rendered crawling and design evaluation:
+```bash
+npx playwright install chromium
+```
 
-- Node.js >= 18
-- Google Chrome (for Lighthouse)
-- Playwright browsers: `npx playwright install chromium`
+## Usage
 
-## CLI Reference
+### Full audit
+```bash
+node dist/cli.js audit https://example.com
+```
 
-### `site-audit crawl <url>`
+### Design evaluation
+```bash
+node dist/cli.js design https://example.com
+```
 
-Crawl a website and save the site graph as JSON.
+### Quick crawl
+```bash
+node dist/cli.js crawl https://example.com
+```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-d, --depth <n>` | `3` | Maximum crawl depth |
-| `-p, --max-pages <n>` | `50` | Maximum pages to crawl |
-| `-m, --mode <mode>` | `rendered` | `rendered` (Playwright) or `html` (plain HTTP) |
-| `-c, --concurrency <n>` | `5` | Concurrent page fetches |
-| `-o, --output <dir>` | `./site-audit-output` | Output directory |
+### Key flags
+```
+--mode html|rendered    Crawl mode (default: rendered via Playwright)
+--skip-lighthouse       Skip Lighthouse performance audit
+--check-image-sizes     Check actual image file sizes via HEAD requests
+--ai                    Enable AI analysis (requires ANTHROPIC_API_KEY)
+--json                  Output JSON to stdout
+--ci                    CI mode (plain text, no spinners)
+--fail-on <severity>    Exit non-zero if issues exist (error|warning|info)
+--pdf                   Generate PDF report
+--depth <n>             Max crawl depth (default: 3)
+--max-pages <n>         Max pages to crawl (default: 50)
+--user-agent <string>   Custom User-Agent
+--include <patterns>    URL patterns to include
+--exclude <patterns>    URL patterns to exclude
+--cookie <string>       Cookie string for authenticated pages
+--no-robots             Ignore robots.txt
+--retries <n>           Retries on transient failures (default: 1)
+```
 
-### `site-audit audit <url>`
+### CI integration
+```bash
+node dist/cli.js audit https://example.com --ci --fail-on warning
+```
 
-Full pipeline: crawl + SEO checks + Lighthouse + HTML report.
+### Compare audits over time
+```bash
+node dist/cli.js history
+node dist/cli.js diff report-before.json report-after.json
+```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-d, --depth <n>` | `3` | Maximum crawl depth |
-| `-p, --max-pages <n>` | `50` | Maximum pages to crawl |
-| `-m, --mode <mode>` | `rendered` | `rendered` or `html` |
-| `-c, --concurrency <n>` | `5` | Concurrent page fetches |
-| `-s, --lighthouse-samples <n>` | `5` | Number of pages to run Lighthouse on |
-| `-f, --form-factor <factor>` | `mobile` | `mobile` or `desktop` |
-| `--skip-lighthouse` | `false` | Skip Lighthouse (faster, SEO-only) |
-| `-o, --output <dir>` | `./site-audit-output` | Output directory |
+## Design Evaluation
 
-### `site-audit report <json-file>`
+The `design` command evaluates every page against a universal design perfection standard. No configuration — the spec defines what perfection looks like:
 
-Re-generate an HTML report from a previous `report.json` export.
+- **Typography**: modular scale, max 2 fonts, 16-21px body, max 8 distinct sizes
+- **Color**: max 16 unique colors, WCAG AA/AAA contrast, no near-duplicates
+- **Spacing**: 4px grid adherence, max 16 distinct values
+- **Layout**: max-width set, no horizontal overflow, images dimensioned
+- **Interaction**: 44px touch targets, visible focus indicators, 100-400ms transitions
+- **Performance**: CLS = 0, font-display set, images prevent reflow
+- **Consistency**: max 4 border-radius values, max 4 shadows
+- **Polish**: favicon, alt text, no broken images
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-o, --output <dir>` | `.` | Output directory |
+Score of 95+ = perfect. Below 75 = needs work.
 
-## Output
+## AI Analysis
 
-### `report.json`
+Set your Anthropic API key and pass `--ai`:
 
-Structured audit data including:
-- Crawl metadata (pages, orphans, status codes, redirect chains)
-- SEO issues per page with severity levels
-- Lighthouse CWV (p50/p95), performance scores, and opportunities
-- Ranked fix list with impact/effort scoring
+```bash
+ANTHROPIC_API_KEY=sk-ant-... node dist/cli.js audit https://example.com --ai
+```
 
-### `report.html`
+Generates an executive summary, per-page content quality analysis, and step-by-step fix instructions.
 
-Self-contained HTML file with:
-- Crawl summary dashboard
-- Status code distribution
-- Ranked fix table sorted by priority score
-- Per-page SEO issues with severity badges
-- Lighthouse CWV summary and per-page scores
+## Claude Code Skill
 
-## Architecture
+This tool is also available as a Claude Code slash command:
 
 ```
-src/
-  cli.ts              CLI entry point (Commander)
-  crawler.ts          Playwright-based website crawler
-  seo-checker.ts      SEO rule engine
-  lighthouse-runner.ts  Lighthouse CWV runner
-  reporter.ts         JSON + HTML report generator
-  types.ts            Shared TypeScript types
+/site-audit https://example.com
 ```
+
+This runs the full pipeline, verifies findings with Playwright MCP screenshots, and presents an actionable summary.
+
+## Development
+
+```bash
+npm install
+npm run dev          # Watch mode
+npm run typecheck    # Type check
+npm test             # Run tests (vitest)
+npm run build        # Build
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and PR process.
 
 ## License
 
