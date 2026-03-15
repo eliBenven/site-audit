@@ -243,6 +243,11 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
   const summary: Record<SeoSeverity, number> = { error: 0, warning: 0, info: 0 };
 
   for (const [url, node] of crawlResult.pages) {
+    // Skip non-HTML pages (plain text files, JSON, XML, etc.)
+    const isNonHtml = /\.(txt|json|xml|pdf|csv|ico|png|jpg|svg|woff2?)$/i.test(new URL(url).pathname)
+      || (!node.html.trim().startsWith("<!") && !node.html.trim().startsWith("<html") && !node.html.includes("<head"));
+    if (isNonHtml) continue;
+
     const $ = loadPage(node.html);
     const issues: SeoIssue[] = [
       ...checkTitle($, url),

@@ -145,6 +145,14 @@ export async function checkExternalLinks(
 
     for (const { link, ok, status } of results) {
       if (!ok) {
+        // Some sites (x.com, twitter.com, linkedin.com) block all bot/HEAD
+        // requests with 403. These aren't broken links — skip them.
+        const host = new URL(link).hostname;
+        const botBlocking = ["x.com", "twitter.com", "linkedin.com", "facebook.com", "instagram.com"];
+        if (status === 403 && botBlocking.some((d) => host === d || host.endsWith("." + d))) {
+          continue;
+        }
+
         broken++;
         const sources = linkSources.get(link)!;
         for (const source of sources) {
