@@ -244,9 +244,13 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
 
   for (const [url, node] of crawlResult.pages) {
     // Skip non-HTML pages (plain text files, JSON, XML, etc.)
-    const isNonHtml = /\.(txt|json|xml|pdf|csv|ico|png|jpg|svg|woff2?)$/i.test(new URL(url).pathname)
-      || (!node.html.trim().startsWith("<!") && !node.html.trim().startsWith("<html") && !node.html.includes("<head"));
-    if (isNonHtml) continue;
+    // Only skip if the URL has a non-HTML extension OR the page has substantial
+    // content that isn't HTML. Empty/error pages should still be checked for status codes.
+    const pathname = new URL(url).pathname;
+    const hasNonHtmlExt = /\.(txt|json|xml|pdf|csv|ico|png|jpg|svg|woff2?)$/i.test(pathname);
+    const trimmed = node.html.trim();
+    const hasContentButNotHtml = trimmed.length > 50 && !trimmed.startsWith("<!") && !trimmed.startsWith("<html") && !trimmed.includes("<head");
+    if (hasNonHtmlExt || hasContentButNotHtml) continue;
 
     const $ = loadPage(node.html);
     const issues: SeoIssue[] = [
