@@ -1,10 +1,11 @@
 /**
  * Image optimization checker module.
  *
- * Detects non-optimal image formats and optionally checks file sizes
- * via HEAD requests.
+ * Uses cheerio for reliable image extraction. Detects non-optimal
+ * image formats and checks file sizes via HEAD requests.
  */
 
+import * as cheerio from "cheerio";
 import type { CrawlResult, SeoIssue } from "./types.js";
 
 export interface ImageCheckResult {
@@ -12,12 +13,19 @@ export interface ImageCheckResult {
 }
 
 function extractImageSrcs(html: string): string[] {
+  const $ = cheerio.load(html);
   const srcs: string[] = [];
-  const re = /<img\s[^>]*src=["']([^"']+)["']/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html)) !== null) {
-    if (m[1] && m[1].trim()) srcs.push(m[1]);
-  }
+  $("img[src]").each((_, el) => {
+    const src = $(el).attr("src");
+    if (src?.trim()) srcs.push(src);
+  });
+  // Also check CSS background images and <source> elements
+  $("source[srcset]").each((_, el) => {
+    const srcset = $(el).attr("srcset") ?? "";
+    // Extract first URL from srcset
+    const first = srcset.split(",")[0]?.trim().split(/\s+/)[0];
+    if (first?.trim()) srcs.push(first);
+  });
   return srcs;
 }
 
@@ -37,7 +45,7 @@ export async function checkImageOptimization(
   crawlResult: CrawlResult,
   options: { checkSizes?: boolean; concurrency?: number; maxSizeKb?: number } = {},
 ): Promise<ImageCheckResult> {
-  const checkSizes = options.checkSizes ?? false;
+  const checkSizes = options.checkSizes ?? true;
   const concurrency = options.concurrency ?? 10;
   const maxSizeKb = options.maxSizeKb ?? 500;
   const issues: SeoIssue[] = [];
@@ -65,11 +73,12 @@ export async function checkImageOptimization(
     }
   }
 
-  // Optional: HEAD requests for file sizes
+  // HEAD requests for file sizes
   if (checkSizes) {
     const srcsToCheck = [...uniqueSrcs.keys()].filter((src) => {
       try {
-        const u = new URL(src, "https://placeholder.com");
+        // Resolve against the start URL to handle relative paths
+        const u = new URL(src, crawlResult.startUrl);
         return u.protocol === "http:" || u.protocol === "https:";
       } catch {
         return false;
@@ -82,10 +91,10 @@ export async function checkImageOptimization(
         batch.map(async (src) => {
           try {
             const resolved = new URL(src, crawlResult.startUrl).href;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 5000);
-            const res = await fetch(resolved, { method: "HEAD", signal: controller.signal });
-            clearTimeout(timer);
+            const res = await fetch(resolved, {
+              method: "HEAD",
+              signal: AbortSignal.timeout(5000),
+            });
             const cl = res.headers.get("content-length");
             return { src, sizeKb: cl ? parseInt(cl, 10) / 1024 : null };
           } catch {

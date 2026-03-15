@@ -2,7 +2,9 @@
  * Report generator module.
  *
  * Produces a JSON report and a self-contained HTML report with a ranked
- * fix list scored by Impact x Effort.
+ * fix list scored by Impact x Effort. Renders ALL analysis sections:
+ * SEO, site-level, accessibility, crawl analysis, resources, content,
+ * images, Lighthouse, and AI insights.
  */
 
 import { writeFile } from "node:fs/promises";
@@ -17,6 +19,7 @@ import type {
   RankedFix,
   SeoResult,
   SiteLevelResult,
+  AiInsights,
 } from "./types.js";
 
 // ── Impact x Effort scoring ─────────────────────────────────────────────────
@@ -37,7 +40,6 @@ export function buildRankedFixes(
 ): RankedFix[] {
   const fixMap = new Map<string, RankedFix>();
 
-  // Helper to add/merge a fix
   function addFix(key: string, fix: Omit<RankedFix, "rank" | "score">) {
     const existing = fixMap.get(key);
     if (existing) {
@@ -53,7 +55,6 @@ export function buildRankedFixes(
     }
   }
 
-  // SEO-derived fixes
   const ruleConfig: Record<string, { title: string; impact: FixImpact; effort: FixEffort; category: RankedFix["category"] }> = {
     "title-missing": { title: "Add missing page titles", impact: "high", effort: "low", category: "seo" },
     "title-too-short": { title: "Improve short page titles", impact: "medium", effort: "low", category: "seo" },
@@ -113,86 +114,49 @@ export function buildRankedFixes(
     for (const issue of page.issues) {
       const cfg = ruleConfig[issue.rule];
       if (cfg) {
-        addFix(issue.rule, {
-          title: cfg.title,
-          description: issue.message,
-          impact: cfg.impact,
-          effort: cfg.effort,
-          affectedUrls: [issue.url],
-          category: cfg.category,
-        });
+        addFix(issue.rule, { title: cfg.title, description: issue.message, impact: cfg.impact, effort: cfg.effort, affectedUrls: [issue.url], category: cfg.category });
       }
     }
   }
 
-  // Site-level fixes (robots.txt, sitemap.xml)
   if (siteLevel) {
     for (const issue of siteLevel.issues) {
       const cfg = ruleConfig[issue.rule];
       if (cfg) {
-        addFix(issue.rule, {
-          title: cfg.title,
-          description: issue.message,
-          impact: cfg.impact,
-          effort: cfg.effort,
-          affectedUrls: [issue.url],
-          category: cfg.category,
-        });
+        addFix(issue.rule, { title: cfg.title, description: issue.message, impact: cfg.impact, effort: cfg.effort, affectedUrls: [issue.url], category: cfg.category });
       }
     }
   }
 
-  // Extra analysis modules (accessibility, resources, content, images, etc.)
   if (extras) {
     for (const group of extras) {
       if (!group) continue;
       for (const issue of group.issues) {
         const cfg = ruleConfig[issue.rule];
         if (cfg) {
-          addFix(issue.rule, {
-            title: cfg.title,
-            description: issue.message,
-            impact: cfg.impact,
-            effort: cfg.effort,
-            affectedUrls: [issue.url],
-            category: cfg.category,
-          });
+          addFix(issue.rule, { title: cfg.title, description: issue.message, impact: cfg.impact, effort: cfg.effort, affectedUrls: [issue.url], category: cfg.category });
         }
       }
     }
   }
 
-  // Lighthouse-derived fixes
   if (lh) {
     for (const page of lh.pages) {
       for (const opp of page.opportunities) {
         const savingsMs = opp.estimatedSavingsMs ?? 0;
         const impact: FixImpact = savingsMs > 1000 ? "high" : savingsMs > 300 ? "medium" : "low";
-        addFix(`lh-${opp.title}`, {
-          title: opp.title,
-          description: opp.description,
-          impact,
-          effort: "medium",
-          affectedUrls: [page.url],
-          category: "performance",
-        });
+        addFix(`lh-${opp.title}`, { title: opp.title, description: opp.description, impact, effort: "medium", affectedUrls: [page.url], category: "performance" });
       }
     }
-
-    // CWV offenders
     for (const offender of lh.topOffenders) {
       addFix(`cwv-${offender.metric}`, {
         title: `Improve ${offender.metric} score`,
         description: `${offender.metric} value of ${offender.value.toFixed(offender.metric === "CLS" ? 3 : 0)} exceeds threshold.`,
-        impact: "high",
-        effort: "high",
-        affectedUrls: [offender.url],
-        category: "performance",
+        impact: "high", effort: "high", affectedUrls: [offender.url], category: "performance",
       });
     }
   }
 
-  // Sort by score descending, then assign ranks
   const fixes = [...fixMap.values()].sort((a, b) => b.score - a.score);
   fixes.forEach((f, i) => (f.rank = i + 1));
   return fixes;
@@ -211,6 +175,7 @@ export interface ReportInputs {
   resources?: IssueGroup | null;
   contentAnalysis?: IssueGroup | null;
   imageOptimization?: IssueGroup | null;
+  ai?: AiInsights | null;
 }
 
 export function buildJsonReport(inputs: ReportInputs): AuditReport {
@@ -218,6 +183,8 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
 
   const statusCodeDist: Record<number, number> = {};
   const redirectChains: Array<{ from: string; chain: string[] }> = [];
+  const ttfbs: number[] = [];
+  const responseTimes: number[] = [];
 
   for (const [url, node] of crawlResult.pages) {
     const code = node.statusCode;
@@ -225,7 +192,12 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
     if (node.redirectChain.length > 0) {
       redirectChains.push({ from: url, chain: node.redirectChain });
     }
+    if (node.ttfb !== undefined && node.ttfb > 0) ttfbs.push(node.ttfb);
+    if (node.responseTime !== undefined && node.responseTime > 0) responseTimes.push(node.responseTime);
   }
+
+  const avgTtfb = ttfbs.length > 0 ? Math.round(ttfbs.reduce((a, b) => a + b, 0) / ttfbs.length) : undefined;
+  const avgResponseTime = responseTimes.length > 0 ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) : undefined;
 
   const extras = [
     inputs.externalLinks,
@@ -245,6 +217,8 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
       elapsedMs: crawlResult.elapsedMs,
       statusCodeDistribution: statusCodeDist,
       redirectChains,
+      avgTtfb,
+      avgResponseTime,
     },
     seo,
     ...(siteLevel ? { siteLevel } : {}),
@@ -256,6 +230,7 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
     ...(inputs.imageOptimization ? { imageOptimization: inputs.imageOptimization } : {}),
     lighthouse: lh,
     rankedFixes: buildRankedFixes(seo, lh, siteLevel, extras),
+    ...(inputs.ai ? { ai: inputs.ai } : {}),
   };
 }
 
@@ -267,6 +242,34 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function renderIssueList(issues: Array<{ severity: string; rule: string; message: string; url: string }>): string {
+  if (issues.length === 0) return "<p>No issues found.</p>";
+  const severityBadge = (sev: string) => {
+    const colors: Record<string, string> = { error: "#dc3545", warning: "#ffc107", info: "#17a2b8" };
+    const bg = colors[sev] ?? "#6c757d";
+    const fg = sev === "warning" ? "#000" : "#fff";
+    return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:4px;font-size:0.8em;font-weight:600;">${sev.toUpperCase()}</span>`;
+  };
+
+  // Group by URL
+  const byUrl = new Map<string, typeof issues>();
+  for (const issue of issues) {
+    const list = byUrl.get(issue.url) ?? [];
+    list.push(issue);
+    byUrl.set(issue.url, list);
+  }
+
+  let html = "";
+  for (const [url, urlIssues] of byUrl) {
+    html += `<h4>${escapeHtml(url)}</h4><ul>`;
+    for (const issue of urlIssues) {
+      html += `<li>${severityBadge(issue.severity)} <strong>${escapeHtml(issue.rule)}</strong>: ${escapeHtml(issue.message)}</li>`;
+    }
+    html += `</ul>`;
+  }
+  return html;
 }
 
 export function generateHtml(report: AuditReport): string {
@@ -283,6 +286,34 @@ export function generateHtml(report: AuditReport): string {
     const fg = impact === "medium" ? "#000" : "#fff";
     return `<span style="background:${bg};color:${fg};padding:2px 8px;border-radius:4px;font-size:0.8em;">${impact}</span>`;
   };
+
+  // AI Executive Summary
+  let aiHtml = "";
+  if (report.ai) {
+    aiHtml = `<h2>AI Analysis</h2>`;
+    if (report.ai.executiveSummary) {
+      aiHtml += `<div class="card" style="padding:1.5rem;margin-bottom:1.5rem;white-space:pre-wrap;">${escapeHtml(report.ai.executiveSummary)}</div>`;
+    }
+    if (report.ai.pageInsights && report.ai.pageInsights.length > 0) {
+      aiHtml += `<h3>Page Insights</h3>`;
+      for (const insight of report.ai.pageInsights) {
+        aiHtml += `<div class="card" style="margin-bottom:1rem;padding:1rem;">
+          <h4 style="margin-bottom:0.5rem;">${escapeHtml(insight.url)}</h4>
+          <p><strong>Quality:</strong> ${escapeHtml(insight.contentQuality)}</p>
+          <ul>${insight.seoRecommendations.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>
+        </div>`;
+      }
+    }
+    if (report.ai.fixInstructions && report.ai.fixInstructions.length > 0) {
+      aiHtml += `<h3>Detailed Fix Instructions</h3>`;
+      for (const fix of report.ai.fixInstructions) {
+        aiHtml += `<div class="card" style="margin-bottom:1rem;padding:1rem;">
+          <h4 style="margin-bottom:0.5rem;">${escapeHtml(fix.title)}</h4>
+          <div style="white-space:pre-wrap;">${escapeHtml(fix.detailedSteps)}</div>
+        </div>`;
+      }
+    }
+  }
 
   // Ranked fixes table
   let fixesHtml = "";
@@ -313,13 +344,70 @@ export function generateHtml(report: AuditReport): string {
   // Site-level section
   let siteLevelHtml = "";
   if (report.siteLevel && report.siteLevel.issues.length > 0) {
-    siteLevelHtml = `<ul>`;
-    for (const issue of report.siteLevel.issues) {
-      siteLevelHtml += `<li>${severityBadge(issue.severity)} <strong>${escapeHtml(issue.rule)}</strong>: ${escapeHtml(issue.message)}</li>`;
-    }
-    siteLevelHtml += `</ul>`;
+    siteLevelHtml = renderIssueList(report.siteLevel.issues);
   } else {
     siteLevelHtml = "<p>No site-level issues found.</p>";
+  }
+
+  // Accessibility section
+  let a11yHtml = "<p>No accessibility issues found.</p>";
+  if (report.accessibility && report.accessibility.issues.length > 0) {
+    a11yHtml = renderIssueList(report.accessibility.issues);
+  }
+
+  // Crawl analysis section
+  let crawlAnalysisHtml = "<p>No crawl issues found.</p>";
+  if (report.crawlAnalysis && report.crawlAnalysis.issues.length > 0) {
+    crawlAnalysisHtml = renderIssueList(report.crawlAnalysis.issues);
+  }
+
+  // Resource analysis section
+  let resourceHtml = "<p>No resource issues found.</p>";
+  if (report.resources && report.resources.issues.length > 0) {
+    resourceHtml = renderIssueList(report.resources.issues);
+  }
+
+  // Content analysis section
+  let contentHtml = "<p>No content issues found.</p>";
+  if (report.contentAnalysis && report.contentAnalysis.issues.length > 0) {
+    contentHtml = renderIssueList(report.contentAnalysis.issues);
+  }
+
+  // Image optimization section
+  let imageHtml = "<p>No image issues found.</p>";
+  if (report.imageOptimization && report.imageOptimization.issues.length > 0) {
+    imageHtml = renderIssueList(report.imageOptimization.issues);
+  }
+
+  // External links section — group by broken URL rather than by source page
+  let extLinksHtml = "<p>External link check was not run.</p>";
+  if (report.externalLinks) {
+    const el = report.externalLinks;
+    extLinksHtml = `<p>Checked ${el.checked} external links. <strong>${el.broken} broken.</strong></p>`;
+    if (el.issues.length > 0) {
+      // Group issues by the broken external URL (extract from message)
+      const byBrokenUrl = new Map<string, string[]>();
+      for (const issue of el.issues) {
+        const match = issue.message.match(/External link to (\S+)/);
+        const brokenUrl = match ? match[1] : issue.message;
+        const sources = byBrokenUrl.get(brokenUrl) ?? [];
+        sources.push(issue.url);
+        byBrokenUrl.set(brokenUrl, sources);
+      }
+      extLinksHtml += `<table><tr><th>Broken URL</th><th>Status</th><th>Found On</th></tr>`;
+      for (const [brokenUrl, sources] of byBrokenUrl) {
+        const issue = el.issues.find((i) => i.message.includes(brokenUrl));
+        const statusMatch = issue?.message.match(/returned (.+)\.$/);
+        const status = statusMatch ? statusMatch[1] : "error";
+        const uniqueSources = [...new Set(sources)];
+        extLinksHtml += `<tr>
+          <td style="word-break:break-all;">${escapeHtml(brokenUrl)}</td>
+          <td>${escapeHtml(status)}</td>
+          <td>${uniqueSources.length} page${uniqueSources.length === 1 ? "" : "s"}</td>
+        </tr>`;
+      }
+      extLinksHtml += `</table>`;
+    }
   }
 
   // Lighthouse section
@@ -370,6 +458,25 @@ export function generateHtml(report: AuditReport): string {
     .map(([code, count]) => `<tr><td>${code}</td><td>${count}</td></tr>`)
     .join("");
 
+  // TTFB / Response time cards
+  const ttfbCard = report.crawl.avgTtfb
+    ? `<div class="card"><div class="label">Avg TTFB</div><div class="value">${report.crawl.avgTtfb}ms</div></div>`
+    : "";
+  const rtCard = report.crawl.avgResponseTime
+    ? `<div class="card"><div class="label">Avg Response</div><div class="value">${report.crawl.avgResponseTime}ms</div></div>`
+    : "";
+
+  // Count all issues across all sections for the summary
+  const totalIssues =
+    report.seo.summary.error + report.seo.summary.warning + report.seo.summary.info +
+    (report.siteLevel?.issues.length ?? 0) +
+    (report.externalLinks?.issues.length ?? 0) +
+    (report.accessibility?.issues.length ?? 0) +
+    (report.crawlAnalysis?.issues.length ?? 0) +
+    (report.resources?.issues.length ?? 0) +
+    (report.contentAnalysis?.issues.length ?? 0) +
+    (report.imageOptimization?.issues.length ?? 0);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -385,7 +492,7 @@ export function generateHtml(report: AuditReport): string {
     h3 { font-size: 1.15rem; margin: 1.5rem 0 0.75rem; }
     h4 { font-size: 1rem; margin: 1rem 0 0.5rem; color: var(--muted); word-break: break-all; }
     .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; }
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1rem 0; }
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin: 1rem 0; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; }
     .card .label { font-size: 0.85rem; color: var(--muted); }
     .card .value { font-size: 1.5rem; font-weight: 700; }
@@ -395,6 +502,9 @@ export function generateHtml(report: AuditReport): string {
     tr:last-child td { border-bottom: none; }
     ul { margin: 0.5rem 0 1rem 1.5rem; }
     li { margin: 0.35rem 0; }
+    .toc { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; margin: 1rem 0 2rem; }
+    .toc a { color: #0366d6; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
     footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; text-align: center; }
   </style>
 </head>
@@ -402,31 +512,70 @@ export function generateHtml(report: AuditReport): string {
   <h1>Site Audit Report</h1>
   <p class="meta">${escapeHtml(report.startUrl)} &mdash; Generated ${report.generatedAt}</p>
 
-  <h2>Crawl Summary</h2>
+  <div class="toc">
+    <strong>Contents:</strong>
+    ${report.ai ? '<a href="#ai">AI Analysis</a> | ' : ""}
+    <a href="#summary">Summary</a> |
+    <a href="#fixes">Ranked Fixes</a> |
+    <a href="#seo">SEO Issues</a> |
+    <a href="#site-level">Site-Level</a> |
+    <a href="#a11y">Accessibility</a> |
+    <a href="#ext-links">External Links</a> |
+    <a href="#crawl-analysis">Crawl Analysis</a> |
+    <a href="#resources">Resources</a> |
+    <a href="#content">Content</a> |
+    <a href="#images">Images</a> |
+    <a href="#lighthouse">Lighthouse</a>
+  </div>
+
+  ${aiHtml}
+
+  <h2 id="summary">Crawl Summary</h2>
   <div class="summary-grid">
     <div class="card"><div class="label">Pages Crawled</div><div class="value">${report.crawl.totalPages}</div></div>
     <div class="card"><div class="label">Orphan Pages</div><div class="value">${report.crawl.orphanPages.length}</div></div>
     <div class="card"><div class="label">Crawl Time</div><div class="value">${(report.crawl.elapsedMs / 1000).toFixed(1)}s</div></div>
+    <div class="card"><div class="label">Total Issues</div><div class="value">${totalIssues}</div></div>
     <div class="card"><div class="label">SEO Errors</div><div class="value" style="color:#dc3545">${report.seo.summary.error}</div></div>
     <div class="card"><div class="label">SEO Warnings</div><div class="value" style="color:#ffc107">${report.seo.summary.warning}</div></div>
+    ${ttfbCard}
+    ${rtCard}
   </div>
 
   <h3>Status Codes</h3>
   <table><tr><th>Code</th><th>Count</th></tr>${statusCodes}</table>
 
-  <h2>Ranked Fix List (Impact x Effort)</h2>
+  <h2 id="fixes">Ranked Fix List (Impact x Effort)</h2>
   <table>
     <tr><th>#</th><th>Fix</th><th>Impact</th><th>Effort</th><th>Score</th><th>Pages</th><th>Category</th></tr>
     ${fixesHtml}
   </table>
 
-  <h2>SEO Issues</h2>
+  <h2 id="seo">SEO Issues</h2>
   ${seoIssuesHtml || "<p>No SEO issues found.</p>"}
 
-  <h2>Site-Level Checks</h2>
+  <h2 id="site-level">Site-Level Checks</h2>
   ${siteLevelHtml}
 
-  <h2>Lighthouse Performance</h2>
+  <h2 id="a11y">Accessibility</h2>
+  ${a11yHtml}
+
+  <h2 id="ext-links">External Links</h2>
+  ${extLinksHtml}
+
+  <h2 id="crawl-analysis">Crawl Analysis</h2>
+  ${crawlAnalysisHtml}
+
+  <h2 id="resources">Resource Analysis</h2>
+  ${resourceHtml}
+
+  <h2 id="content">Content Analysis</h2>
+  ${contentHtml}
+
+  <h2 id="images">Image Optimization</h2>
+  ${imageHtml}
+
+  <h2 id="lighthouse">Lighthouse Performance</h2>
   ${lighthouseHtml}
 
   <footer>Generated by site-audit v1.0.0</footer>
@@ -461,9 +610,6 @@ export async function generateReport(
   return { jsonPath, htmlPath, report };
 }
 
-/**
- * Generate a report from a previously saved JSON file.
- */
 export async function generateHtmlFromJson(
   jsonPath: string,
   outputDir: string,

@@ -1,10 +1,12 @@
 /**
  * External link checker module.
  *
- * Extracts outbound (external) links from crawled pages and verifies
- * they resolve to a 2xx status via HEAD requests.
+ * Extracts outbound (external) links from crawled pages using cheerio
+ * and verifies they resolve to a 2xx status via HEAD requests.
+ * Rate-limits requests per domain to avoid hammering external servers.
  */
 
+import * as cheerio from "cheerio";
 import type { CrawlResult, SeoIssue } from "./types.js";
 
 export interface ExternalLinkResult {
@@ -14,13 +16,13 @@ export interface ExternalLinkResult {
 }
 
 function extractExternalLinks(html: string, pageUrl: string): string[] {
+  const $ = cheerio.load(html);
   const links: string[] = [];
-  const re = /<a\s[^>]*href=["']([^"']+)["'][^>]*>/gi;
-  let m: RegExpExecArray | null;
   const pageOrigin = new URL(pageUrl).origin;
 
-  while ((m = re.exec(html)) !== null) {
-    const href = m[1];
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href");
+    if (!href) return;
     try {
       const resolved = new URL(href, pageUrl);
       if (
@@ -32,35 +34,59 @@ function extractExternalLinks(html: string, pageUrl: string): string[] {
     } catch {
       // skip invalid URLs
     }
-  }
+  });
+
   return [...new Set(links)];
 }
 
-async function headCheck(
+async function headCheckWithRetry(
   url: string,
   timeoutMs: number,
+  retries: number,
 ): Promise<{ ok: boolean; status: number }> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(url, {
-      method: "HEAD",
-      signal: controller.signal,
-      redirect: "follow",
-    });
-    clearTimeout(timer);
-    return { ok: res.ok, status: res.status };
-  } catch {
-    return { ok: false, status: 0 };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(url, {
+        method: "HEAD",
+        signal: controller.signal,
+        redirect: "follow",
+      });
+      clearTimeout(timer);
+
+      // Some servers reject HEAD — fallback to GET on 405
+      if (res.status === 405) {
+        const getController = new AbortController();
+        const getTimer = setTimeout(() => getController.abort(), timeoutMs);
+        const getRes = await fetch(url, {
+          method: "GET",
+          signal: getController.signal,
+          redirect: "follow",
+        });
+        clearTimeout(getTimer);
+        return { ok: getRes.ok, status: getRes.status };
+      }
+
+      if (res.ok || res.status < 500) return { ok: res.ok, status: res.status };
+      // Retry on 5xx
+      if (attempt < retries) continue;
+      return { ok: res.ok, status: res.status };
+    } catch {
+      if (attempt < retries) continue;
+      return { ok: false, status: 0 };
+    }
   }
+  return { ok: false, status: 0 };
 }
 
 export async function checkExternalLinks(
   crawlResult: CrawlResult,
-  options: { concurrency?: number; timeout?: number } = {},
+  options: { concurrency?: number; timeout?: number; retries?: number } = {},
 ): Promise<ExternalLinkResult> {
   const concurrency = options.concurrency ?? 10;
   const timeout = options.timeout ?? 8_000;
+  const retries = options.retries ?? 1;
   const issues: SeoIssue[] = [];
 
   // Collect all unique external links with source pages
@@ -73,7 +99,38 @@ export async function checkExternalLinks(
     }
   }
 
-  const allLinks = [...linkSources.keys()];
+  // Group links by domain for rate limiting
+  const domainBuckets = new Map<string, string[]>();
+  for (const link of linkSources.keys()) {
+    try {
+      const host = new URL(link).hostname;
+      const bucket = domainBuckets.get(host) ?? [];
+      bucket.push(link);
+      domainBuckets.set(host, bucket);
+    } catch {
+      // Skip unparseable
+    }
+  }
+
+  // Flatten into batches that don't hit the same domain more than twice per batch
+  const allLinks: string[] = [];
+  const domainQueues = new Map<string, string[]>();
+  for (const [domain, links] of domainBuckets) {
+    domainQueues.set(domain, [...links]);
+  }
+
+  // Interleave domains to spread load
+  let hasMore = true;
+  while (hasMore) {
+    hasMore = false;
+    for (const [, queue] of domainQueues) {
+      if (queue.length > 0) {
+        allLinks.push(queue.shift()!);
+        hasMore = hasMore || queue.length > 0;
+      }
+    }
+  }
+
   let broken = 0;
 
   // Process in batches
@@ -81,7 +138,7 @@ export async function checkExternalLinks(
     const batch = allLinks.slice(i, i + concurrency);
     const results = await Promise.all(
       batch.map(async (link) => {
-        const result = await headCheck(link, timeout);
+        const result = await headCheckWithRetry(link, timeout, retries);
         return { link, ...result };
       }),
     );
@@ -102,5 +159,5 @@ export async function checkExternalLinks(
     }
   }
 
-  return { checked: allLinks.length, broken, issues };
+  return { checked: linkSources.size, broken, issues };
 }

@@ -15,8 +15,18 @@ export interface CrawlOptions {
   concurrency: number;
   /** Request timeout in milliseconds. */
   timeout: number;
-  /** Respect robots.txt (best-effort). */
+  /** Respect robots.txt directives. */
   respectRobotsTxt: boolean;
+  /** Custom User-Agent string. */
+  userAgent?: string;
+  /** URL patterns to include (glob-like). */
+  include?: string[];
+  /** URL patterns to exclude (glob-like). */
+  exclude?: string[];
+  /** Number of retries on transient failures (timeout, 5xx). */
+  retries: number;
+  /** Cookie string to send with requests (e.g. "session=abc123"). */
+  cookie?: string;
 }
 
 export interface PageNode {
@@ -35,6 +45,10 @@ export interface PageNode {
   html: string;
   /** Error message if the page could not be fetched. */
   error?: string;
+  /** Time to first byte in ms. */
+  ttfb?: number;
+  /** Total response time in ms. */
+  responseTime?: number;
 }
 
 export interface CrawlResult {
@@ -144,6 +158,23 @@ export interface IssueGroup {
   issues: SeoIssue[];
 }
 
+export interface AiInsights {
+  /** Executive summary of the entire audit. */
+  executiveSummary: string;
+  /** Per-page content quality & SEO recommendations. */
+  pageInsights: Array<{
+    url: string;
+    contentQuality: string;
+    seoRecommendations: string[];
+  }>;
+  /** Detailed, actionable fix instructions for top issues. */
+  fixInstructions: Array<{
+    rule: string;
+    title: string;
+    detailedSteps: string;
+  }>;
+}
+
 export interface AuditReport {
   /** ISO-8601 timestamp. */
   generatedAt: string;
@@ -154,6 +185,10 @@ export interface AuditReport {
     elapsedMs: number;
     statusCodeDistribution: Record<number, number>;
     redirectChains: Array<{ from: string; chain: string[] }>;
+    /** Average TTFB across crawled pages. */
+    avgTtfb?: number;
+    /** Average response time across crawled pages. */
+    avgResponseTime?: number;
   };
   seo: SeoResult;
   /** Site-level checks (robots.txt, sitemap.xml, security headers). */
@@ -172,4 +207,6 @@ export interface AuditReport {
   imageOptimization?: IssueGroup;
   lighthouse: LighthouseResult | null;
   rankedFixes: RankedFix[];
+  /** AI-generated insights (requires ANTHROPIC_API_KEY). */
+  ai?: AiInsights;
 }
