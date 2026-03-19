@@ -28,6 +28,7 @@ import { analyzeCrawl } from "./crawl-analyzer.js";
 import { analyzeResources } from "./resource-analyzer.js";
 import { analyzeContent } from "./content-analyzer.js";
 import { checkImageOptimization } from "./image-checker.js";
+import { checkLinkPreviews } from "./link-preview-checker.js";
 import type { CrawlOptions, LighthouseOptions, SeoSeverity } from "./types.js";
 
 const program = new Command();
@@ -266,12 +267,17 @@ program
         checkSizes: opts.checkImageSizes ?? false,
       });
     } catch { /* non-fatal */ }
+    let linkPreviewResult = null;
+    try {
+      linkPreviewResult = await checkLinkPreviews(crawlResult);
+    } catch { /* non-fatal */ }
     const extIssueCount =
       accessibilityResult.issues.length +
       crawlAnalysisResult.issues.length +
       resourcesResult.issues.length +
       contentAnalysisResult.issues.length +
-      (imageResult?.issues.length ?? 0);
+      (imageResult?.issues.length ?? 0) +
+      (linkPreviewResult?.issues.length ?? 0);
     extSpinner.succeed(`Extended analysis: ${extIssueCount} issues found`);
 
     // Step 6: Lighthouse
@@ -305,7 +311,7 @@ program
           siteLevel: siteLevelResult, externalLinks: externalLinksResult,
           accessibility: accessibilityResult, crawlAnalysis: crawlAnalysisResult,
           resources: resourcesResult, contentAnalysis: contentAnalysisResult,
-          imageOptimization: imageResult,
+          imageOptimization: imageResult, linkPreviews: linkPreviewResult,
         };
         const prelimReport = buildJsonReport(prelimInputs);
         aiResult = await analyzeWithAi(prelimReport);
@@ -329,6 +335,7 @@ program
         resources: resourcesResult,
         contentAnalysis: contentAnalysisResult,
         imageOptimization: imageResult,
+        linkPreviews: linkPreviewResult,
         ai: aiResult,
       };
       const { jsonPath, htmlPath, report } = await generateReport(inputs, outputDir);

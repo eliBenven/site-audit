@@ -162,9 +162,53 @@ function checkLang($: cheerio.CheerioAPI, url: string): SeoIssue[] {
 
 function checkStructuredData($: cheerio.CheerioAPI, url: string): SeoIssue[] {
   const issues: SeoIssue[] = [];
-  if ($('script[type="application/ld+json"]').length === 0) {
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+
+  if (jsonLdScripts.length === 0) {
     issues.push({ rule: "structured-data-missing", severity: "info", message: "Page has no JSON-LD structured data. Adding schema markup can improve rich results.", url });
   }
+
+  return issues;
+}
+
+function checkSitelinksReadiness($: cheerio.CheerioAPI, url: string, isHomepage: boolean): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  if (!isHomepage) return issues;
+
+  // Google generates sitelinks from: clear nav structure, internal links,
+  // structured data (SiteNavigationElement, BreadcrumbList), and site authority.
+  // We can check the technical prerequisites.
+
+  // Check for nav element with clear link structure
+  const navLinks = $("nav a[href]");
+  if (navLinks.length < 3) {
+    issues.push({
+      rule: "sitelinks-no-structured-nav",
+      severity: "info",
+      message: `Homepage <nav> has only ${navLinks.length} links. Google Sitelinks need a clear navigation structure with 4-8 well-labeled links to key pages.`,
+      url,
+    });
+  }
+
+  // Check for BreadcrumbList structured data (helps sitelinks on inner pages)
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+  let hasBreadcrumbs = false;
+  let hasSiteNavigation = false;
+  jsonLdScripts.each((_, el) => {
+    const text = $(el).text();
+    if (text.includes("BreadcrumbList")) hasBreadcrumbs = true;
+    if (text.includes("SiteNavigationElement")) hasSiteNavigation = true;
+  });
+
+  if (!hasBreadcrumbs && !hasSiteNavigation) {
+    issues.push({
+      rule: "sitelinks-missing-breadcrumbs",
+      severity: "info",
+      message: "No BreadcrumbList or SiteNavigationElement schema found. Adding these helps Google understand your site structure and generate Sitelinks (the sub-links under your main search result).",
+      url,
+    });
+  }
+
   return issues;
 }
 
@@ -279,6 +323,7 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
     if (hasNonHtmlExt || hasContentButNotHtml) continue;
 
     const $ = loadPage(node.html);
+    const isHomepage = node.depth === 0;
     const issues: SeoIssue[] = [
       ...checkTitle($, url),
       ...checkMetaDescription($, url),
@@ -296,6 +341,7 @@ export function checkSeo(crawlResult: CrawlResult): SeoResult {
       ...checkThinContent($, url),
       ...checkRedirectChain(node.redirectChain, url),
       ...checkStatusCode(node.statusCode, url),
+      ...checkSitelinksReadiness($, url, isHomepage),
     ];
 
     for (const issue of issues) {

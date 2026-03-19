@@ -118,6 +118,26 @@ export function buildRankedFixes(
     "perf-slow-ttfb": { title: "Improve server response time (TTFB)", impact: "high", effort: "high", category: "performance" },
     "perf-large-html": { title: "Reduce HTML payload size", impact: "medium", effort: "medium", category: "performance" },
     "perf-images-not-lazy": { title: "Add lazy loading to below-fold images", impact: "medium", effort: "low", category: "performance" },
+    // Link preview checks
+    "preview-empty": { title: "Add OG metadata for social sharing previews", impact: "high", effort: "low", category: "seo" },
+    "preview-no-image": { title: "Add og:image for social sharing previews", impact: "high", effort: "medium", category: "seo" },
+    "preview-title-fallback": { title: "Set a dedicated og:title for social sharing", impact: "low", effort: "low", category: "seo" },
+    "preview-description-fallback": { title: "Set a dedicated og:description for social sharing", impact: "low", effort: "low", category: "seo" },
+    "preview-image-relative": { title: "Fix relative og:image URL (must be absolute)", impact: "high", effort: "low", category: "seo" },
+    "preview-image-broken": { title: "Fix broken og:image URL", impact: "high", effort: "low", category: "seo" },
+    "preview-image-too-small": { title: "Increase og:image dimensions (min 200x200)", impact: "medium", effort: "medium", category: "seo" },
+    "preview-image-suboptimal-size": { title: "Optimize og:image to 1200x630px", impact: "low", effort: "medium", category: "seo" },
+    "preview-image-no-dimensions": { title: "Add og:image:width and og:image:height tags", impact: "low", effort: "low", category: "seo" },
+    "preview-image-too-heavy": { title: "Compress og:image (exceeds platform limits)", impact: "medium", effort: "medium", category: "images" },
+    "preview-image-heavy": { title: "Compress og:image for faster social previews", impact: "low", effort: "medium", category: "images" },
+    "preview-twitter-card-missing": { title: "Add twitter:card meta tag", impact: "low", effort: "low", category: "seo" },
+    "preview-twitter-card-small": { title: "Use summary_large_image for bigger Twitter previews", impact: "low", effort: "low", category: "seo" },
+    "preview-title-too-long": { title: "Shorten og:title for social sharing", impact: "low", effort: "low", category: "seo" },
+    "preview-description-too-long": { title: "Shorten og:description for social sharing", impact: "low", effort: "low", category: "seo" },
+    "preview-site-name-missing": { title: "Add og:site_name for branded previews", impact: "low", effort: "low", category: "seo" },
+    // Sitelinks readiness
+    "sitelinks-no-structured-nav": { title: "Add structured navigation for Google Sitelinks", impact: "medium", effort: "medium", category: "seo" },
+    "sitelinks-missing-breadcrumbs": { title: "Add BreadcrumbList schema for Sitelinks", impact: "medium", effort: "medium", category: "seo" },
   };
 
   for (const page of seo.pages) {
@@ -185,6 +205,7 @@ export interface ReportInputs {
   resources?: IssueGroup | null;
   contentAnalysis?: IssueGroup | null;
   imageOptimization?: IssueGroup | null;
+  linkPreviews?: IssueGroup | null;
   ai?: AiInsights | null;
 }
 
@@ -216,6 +237,7 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
     inputs.resources,
     inputs.contentAnalysis,
     inputs.imageOptimization,
+    inputs.linkPreviews,
   ];
 
   return {
@@ -238,6 +260,7 @@ export function buildJsonReport(inputs: ReportInputs): AuditReport {
     ...(inputs.resources ? { resources: inputs.resources } : {}),
     ...(inputs.contentAnalysis ? { contentAnalysis: inputs.contentAnalysis } : {}),
     ...(inputs.imageOptimization ? { imageOptimization: inputs.imageOptimization } : {}),
+    ...(inputs.linkPreviews ? { linkPreviews: inputs.linkPreviews } : {}),
     lighthouse: lh,
     rankedFixes: buildRankedFixes(seo, lh, siteLevel, extras),
     ...(inputs.ai ? { ai: inputs.ai } : {}),
