@@ -23,12 +23,33 @@ function loadPage(html: string) {
 
 // ── Rule checks ──────────────────────────────────────────────────────────────
 
+const SCAFFOLD_TITLES = new Set([
+  "create next app",
+  "vite app",
+  "vite + react",
+  "vite + react + ts",
+  "welcome to react",
+  "react app",
+  "home",
+  "index",
+  "my app",
+  "next.js app",
+  "nuxt app",
+  "sveltekit app",
+  "astro",
+  "untitled",
+  "document",
+  "page",
+]);
+
 function checkTitle($: cheerio.CheerioAPI, url: string): SeoIssue[] {
   const issues: SeoIssue[] = [];
   const title = $("title").first().text().trim();
 
   if (!title) {
     issues.push({ rule: "title-missing", severity: "error", message: "Page is missing a <title> tag.", url });
+  } else if (SCAFFOLD_TITLES.has(title.toLowerCase())) {
+    issues.push({ rule: "title-scaffold-default", severity: "error", message: `Title "${title}" is a framework default. Replace it with a real, descriptive title.`, url });
   } else if (title.length < 10) {
     issues.push({ rule: "title-too-short", severity: "warning", message: `Title is too short (${title.length} chars). Aim for 30-60 characters.`, url });
   } else if (title.length > 70) {
@@ -107,9 +128,14 @@ function checkOpenGraph($: cheerio.CheerioAPI, url: string): SeoIssue[] {
   if (!$('meta[property="og:description"]').attr("content")) {
     issues.push({ rule: "og-description-missing", severity: "info", message: "Page is missing an og:description meta tag.", url });
   }
-  if (!$('meta[property="og:image"]').attr("content")) {
-    issues.push({ rule: "og-image-missing", severity: "warning", message: "Page is missing an og:image meta tag. Social shares will lack a preview image.", url });
+
+  const ogImage = $('meta[property="og:image"]').attr("content");
+  if (!ogImage) {
+    issues.push({ rule: "og-image-missing", severity: "warning", message: "Page is missing an og:image meta tag. Social shares will lack a preview image — this significantly hurts click-through rates.", url });
+  } else if (!ogImage.startsWith("http://") && !ogImage.startsWith("https://")) {
+    issues.push({ rule: "og-image-relative", severity: "warning", message: `og:image URL is relative ("${ogImage.substring(0, 60)}"). Social platforms require absolute URLs.`, url });
   }
+
   if (!$('meta[property="og:url"]').attr("content")) {
     issues.push({ rule: "og-url-missing", severity: "info", message: "Page is missing an og:url meta tag.", url });
   }

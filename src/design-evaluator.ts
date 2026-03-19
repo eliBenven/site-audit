@@ -604,16 +604,27 @@ function checkTypography(styles: ExtractedStyles): DesignCheck[] {
     if (lower.includes("fallback")) return false;
     // Skip single-word system fonts that slipped through
     if (lower.startsWith("__") && lower.includes("_fallback")) return false;
+    // Skip Next.js internal font aliases (e.g., __nextjs-Geist, __Inter_abc123)
+    if (lower.startsWith("__nextjs-") || lower.startsWith("__nextjs_")) return false;
+    if (/^__[a-z].*_[0-9a-f]{4,}$/i.test(f)) return false;
+    // Skip Source Sans Pro and other fonts injected by browser extensions
+    if (lower === "source sans pro") return false;
     return true;
   });
+  // Deduplicate fonts that are the same family with different internal names
+  // e.g., "Geist" and "__nextjs-Geist" are the same font
+  const deduped = [...new Set(customFonts.map((f) => {
+    // Normalize: strip leading __ and trailing _hash patterns
+    return f.replace(/^__/, "").replace(/_[0-9a-f]{4,}$/i, "");
+  }))];
   checks.push({
     id: "type-font-families",
     label: "Font family count",
     dimension: "typography",
-    score: customFonts.length <= TYPOGRAPHY.maxFontFamilies ? 100 : deviationScore(customFonts.length - TYPOGRAPHY.maxFontFamilies, 3),
+    score: deduped.length <= TYPOGRAPHY.maxFontFamilies ? 100 : deviationScore(deduped.length - TYPOGRAPHY.maxFontFamilies, 3),
     standard: `≤${TYPOGRAPHY.maxFontFamilies} font families`,
-    actual: `${customFonts.length} font families: ${customFonts.slice(0, 4).join(", ")}`,
-    deviations: customFonts.length > TYPOGRAPHY.maxFontFamilies ? [`${customFonts.length} fonts found — pick ${TYPOGRAPHY.maxFontFamilies} and kill the rest`] : [],
+    actual: `${deduped.length} font families: ${deduped.slice(0, 4).join(", ")}`,
+    deviations: deduped.length > TYPOGRAPHY.maxFontFamilies ? [`${deduped.length} fonts found — pick ${TYPOGRAPHY.maxFontFamilies} and kill the rest`] : [],
   });
 
   // Body font size
@@ -824,16 +835,22 @@ function checkSpacing(styles: ExtractedStyles): DesignCheck[] {
     deviations: offGridValues.size > 0 ? [`Off-grid values: ${[...offGridValues].sort((a, b) => a - b).slice(0, 10).join(", ")}px`] : [],
   });
 
-  // Distinct values
+  // Distinct values — relax threshold if a utility CSS framework is detected
   const uniqueSpacing = [...new Set(values)];
+  // Tailwind/utility framework heuristic: Tailwind sites produce many spacing values
+  // on a consistent 4px grid. If 90%+ are on-grid AND there are many values, it's likely
+  // a utility framework — not sloppy spacing.
+  const isTailwind = gridRatio >= 0.95 && uniqueSpacing.length > SPACING.maxDistinctValues;
+  const spacingThreshold = isTailwind ? 32 : SPACING.maxDistinctValues;
+  const spacingNote = isTailwind ? " (relaxed — Tailwind CSS detected)" : " (tight spacing scale)";
   checks.push({
     id: "spacing-distinct",
     label: "Distinct spacing values",
     dimension: "spacing",
-    score: uniqueSpacing.length <= SPACING.maxDistinctValues ? 100 : deviationScore(uniqueSpacing.length - SPACING.maxDistinctValues, 15),
-    standard: `≤${SPACING.maxDistinctValues} distinct values (tight spacing scale)`,
+    score: uniqueSpacing.length <= spacingThreshold ? 100 : deviationScore(uniqueSpacing.length - spacingThreshold, 15),
+    standard: `≤${spacingThreshold} distinct values${spacingNote}`,
     actual: `${uniqueSpacing.length} distinct values`,
-    deviations: uniqueSpacing.length > SPACING.maxDistinctValues ? ["Too many spacing values — define a scale and stick to it"] : [],
+    deviations: uniqueSpacing.length > spacingThreshold ? ["Too many spacing values — define a scale and stick to it"] : [],
   });
 
   return checks;

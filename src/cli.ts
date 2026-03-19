@@ -204,12 +204,25 @@ program
         cookie: opts.cookie,
       };
       crawlResult = await crawl(url, crawlOpts);
+      if (crawlResult.pages.size === 0) {
+        crawlSpinner.fail("Crawled 0 pages");
+        console.error(chalk.red(`ERROR: Crawled 0 pages from ${url}`));
+        console.error(chalk.yellow("Is the server running? Check the URL and try again."));
+        if (opts.json) {
+          console.log(JSON.stringify({ error: "Crawled 0 pages", url, suggestion: "Is the server running?" }));
+        }
+        process.exit(1);
+      }
       crawlSpinner.succeed(
         `Crawled ${crawlResult.pages.size} pages in ${(crawlResult.elapsedMs / 1000).toFixed(1)}s`,
       );
     } catch (err) {
       crawlSpinner.fail("Crawl failed");
-      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(chalk.red(errMsg));
+      if (opts.json) {
+        console.log(JSON.stringify({ error: errMsg, url }));
+      }
       process.exit(1);
     }
 
@@ -686,6 +699,177 @@ program
       console.error(chalk.red(`Failed to diff: ${err instanceof Error ? err.message : String(err)}`));
       process.exit(1);
     }
+  });
+
+// ── badge ───────────────────────────────────────────────────────────────────
+
+program
+  .command("badge <url>")
+  .description("Generate SVG score badges for a URL")
+  .option("-o, --output <dir>", "Output directory", ".")
+  .option("--design-only", "Only generate design badge", false)
+  .action(async (url: string, opts: Record<string, unknown>) => {
+    const outputDir = path.resolve(opts.output as string);
+    await mkdir(outputDir, { recursive: true });
+
+    const spinner = ora("Running audit for badges...").start();
+    try {
+      // Quick audit
+      const crawlResult = await crawl(url, { maxPages: 20, mode: "html" as const });
+      const seoResult = checkSeo(crawlResult);
+
+      const { generateSeoBadge, generateDesignBadge } = await import("./badge.js");
+
+      // SEO badge
+      if (!opts.designOnly) {
+        const seoBadge = generateSeoBadge(seoResult.summary.error, seoResult.summary.warning);
+        const seoPath = path.join(outputDir, "seo-badge.svg");
+        await writeFile(seoPath, seoBadge, "utf-8");
+      }
+
+      // Design badge (needs Playwright)
+      let designScore = 0;
+      try {
+        const { evaluateDesign } = await import("./design-evaluator.js");
+        const result = await evaluateDesign(crawlResult, { maxPages: 5 });
+        designScore = result.score.overall;
+      } catch {
+        spinner.warn("Design evaluation requires Playwright. Generating SEO badge only.");
+      }
+
+      if (designScore > 0) {
+        const designBadge = generateDesignBadge(designScore);
+        const designPath = path.join(outputDir, "design-badge.svg");
+        await writeFile(designPath, designBadge, "utf-8");
+      }
+
+      spinner.succeed("Badges generated");
+      console.log("\nAdd to your README:");
+      console.log(`  ![Design Score](design-badge.svg)`);
+      console.log(`  ![SEO](seo-badge.svg)`);
+    } catch (err) {
+      spinner.fail("Badge generation failed");
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  });
+
+// ── serve ───────────────────────────────────────────────────────────────────
+
+program
+  .command("serve <url>")
+  .description("Launch a local dashboard for interactive auditing")
+  .option("-p, --port <number>", "Port number", "3939")
+  .option("--max-pages <number>", "Max pages to crawl", "30")
+  .action(async (url: string, opts: Record<string, unknown>) => {
+    const port = parseInt(opts.port as string, 10);
+    const maxPages = parseInt(opts.maxPages as string, 10);
+
+    async function runFullAudit() {
+      const crawlResult = await crawl(url, { maxPages, mode: "html" as const });
+      const seoResult = checkSeo(crawlResult);
+
+      let designResult = null;
+      try {
+        const { evaluateDesign } = await import("./design-evaluator.js");
+        designResult = await evaluateDesign(crawlResult, { maxPages: Math.min(maxPages, 10) });
+      } catch {
+        // Design evaluation unavailable without Playwright
+      }
+
+      // Build report for ranked fixes
+      const inputs: ReportInputs = {
+        crawlResult,
+        seo: seoResult,
+        lh: null,
+        siteLevel: null,
+        externalLinks: null,
+        accessibility: checkAccessibility(crawlResult),
+        crawlAnalysis: analyzeCrawl(crawlResult),
+        resources: analyzeResources(crawlResult),
+        contentAnalysis: analyzeContent(crawlResult),
+        imageOptimization: null,
+      };
+      const { buildJsonReport } = await import("./reporter.js");
+      const report = buildJsonReport(inputs);
+
+      const dashboardData: import("./dashboard.js").DashboardData = {
+        url,
+        generatedAt: new Date().toISOString(),
+        seo: {
+          summary: seoResult.summary,
+          pages: seoResult.pages.map((p) => ({
+            url: p.url,
+            issues: p.issues.map((i) => ({
+              rule: i.rule,
+              severity: i.severity,
+              message: i.message,
+            })),
+          })),
+        },
+        design: designResult
+          ? {
+              overall: designResult.score.overall,
+              dimensions: designResult.score.dimensions,
+              topIssues: designResult.score.topIssues,
+            }
+          : null,
+        rankedFixes: report.rankedFixes.map((f) => ({
+          rank: f.rank,
+          title: f.title,
+          impact: f.impact,
+          effort: f.effort,
+          category: f.category,
+          description: f.description,
+        })),
+        crawl: {
+          totalPages: crawlResult.pages.size,
+          orphanPages: crawlResult.orphanPages,
+        },
+      };
+
+      return dashboardData;
+    }
+
+    const spinner = ora("Running initial audit...").start();
+    let dashboardData: import("./dashboard.js").DashboardData;
+    try {
+      dashboardData = await runFullAudit();
+      spinner.succeed("Audit complete");
+    } catch (err) {
+      spinner.fail("Audit failed");
+      console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    }
+
+    const { createServer } = await import("node:http");
+    const { generateDashboardHtml } = await import("./dashboard.js");
+
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/rerun") {
+        try {
+          dashboardData = await runFullAudit();
+          res.writeHead(200, { "Content-Type": "text/plain" });
+          res.end("OK");
+        } catch (err) {
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+
+      const html = generateDashboardHtml(dashboardData, port);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html);
+    });
+
+    server.listen(port, () => {
+      console.log("");
+      console.log(chalk.bold("Dashboard running:"));
+      console.log(chalk.blue(`  http://localhost:${port}`));
+      console.log(chalk.dim("  Press Ctrl+C to stop"));
+      console.log("");
+    });
   });
 
 program.parse();

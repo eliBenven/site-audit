@@ -72,7 +72,8 @@ export function buildRankedFixes(
     "status-5xx": { title: "Fix 5xx server errors", impact: "high", effort: "high", category: "seo" },
     "og-title-missing": { title: "Add Open Graph title tags", impact: "low", effort: "low", category: "seo" },
     "og-description-missing": { title: "Add Open Graph description tags", impact: "low", effort: "low", category: "seo" },
-    "og-image-missing": { title: "Add Open Graph image tags", impact: "medium", effort: "low", category: "seo" },
+    "og-image-missing": { title: "Add Open Graph image tags for social sharing", impact: "medium", effort: "low", category: "seo" },
+    "og-image-relative": { title: "Fix relative og:image URL (must be absolute)", impact: "medium", effort: "low", category: "seo" },
     "og-url-missing": { title: "Add Open Graph URL tags", impact: "low", effort: "low", category: "seo" },
     "viewport-missing": { title: "Add viewport meta tag", impact: "high", effort: "low", category: "seo" },
     "html-lang-missing": { title: "Add lang attribute to <html>", impact: "medium", effort: "low", category: "accessibility" },
@@ -108,6 +109,15 @@ export function buildRankedFixes(
     "content-near-duplicate": { title: "Consolidate near-duplicate pages", impact: "medium", effort: "high", category: "content" },
     "img-format-not-optimal": { title: "Convert images to WebP/AVIF", impact: "medium", effort: "medium", category: "images" },
     "img-file-too-large": { title: "Compress oversized images", impact: "high", effort: "medium", category: "images" },
+    // New checks
+    "title-scaffold-default": { title: "Replace default framework page title", impact: "high", effort: "low", category: "seo" },
+    "favicon-framework-default": { title: "Replace default framework favicon with brand logo", impact: "medium", effort: "low", category: "seo" },
+    "internal-link-dead-end": { title: "Add internal links to dead-end pages", impact: "medium", effort: "low", category: "seo" },
+    "internal-link-isolated": { title: "Add more incoming links to isolated pages", impact: "low", effort: "low", category: "seo" },
+    "internal-link-contact-underlinked": { title: "Link to contact page from more pages", impact: "medium", effort: "low", category: "seo" },
+    "perf-slow-ttfb": { title: "Improve server response time (TTFB)", impact: "high", effort: "high", category: "performance" },
+    "perf-large-html": { title: "Reduce HTML payload size", impact: "medium", effort: "medium", category: "performance" },
+    "perf-images-not-lazy": { title: "Add lazy loading to below-fold images", impact: "medium", effort: "low", category: "performance" },
   };
 
   for (const page of seo.pages) {
